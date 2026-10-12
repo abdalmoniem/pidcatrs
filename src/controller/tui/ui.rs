@@ -319,6 +319,7 @@ fn refresh_log_view(app: &mut TuiApp, log_area: Rect) {
         width,
         app.filter_generation,
         build_budget,
+        &app.tui_filters,
     );
 
     let rendered_lines = app.display_cache.rendered_line_count();

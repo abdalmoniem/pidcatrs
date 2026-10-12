@@ -18,7 +18,7 @@ use chrono::Local;
 use crate::LogLevel;
 
 /// Distinguishes normal log lines from process lifecycle banners.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LogEntryKind {
     /// Standard logcat line with tag, level, and message.
     Normal,

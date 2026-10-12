@@ -146,6 +146,8 @@ pub use model::log_format::LogFormatParser;
 pub use model::log_level::LogLevel;
 pub use model::log_source::LogSource;
 pub use model::state::State;
+pub use model::tui_filter::FilterHighlightField;
+pub use model::tui_filter::FilterHighlightRule;
 pub use model::tui_filter::TuiFilter;
 pub use model::tui_filter::TuiFilterSet;
 pub use model::value_unwrap::ValueOrPanic;

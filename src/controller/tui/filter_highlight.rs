@@ -1,0 +1,468 @@
+// Copyright (C) 2026 AbdAlMoniem AlHifnawy
+//
+// This file is part of pidcatrs.
+//
+// pidcatrs is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// pidcatrs is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with pidcatrs.  If not, see <https://www.gnu.org/licenses/>.
+//
+// Author: AbdAlMoniem AlHifnawy
+
+//! Highlighting filter tokens inside rendered log lines.
+
+#![deny(clippy::unwrap_used)]
+
+use std::ops::Range;
+
+use ratatui::style::Color;
+use ratatui::style::Style;
+use ratatui::text::Line;
+use ratatui::text::Span;
+
+use crate::CliArgs;
+use crate::LogEntry;
+use crate::LogEntryKind;
+use crate::State;
+use crate::TuiFilterSet;
+use crate::controller::log_processor::log_line_column_ranges_for_entry;
+use crate::controller::log_processor::message_field_char_range;
+use crate::model::tui_filter::FilterHighlightField;
+use crate::model::tui_filter::FilterHighlightRule;
+
+use super::theme;
+
+/// Message slice of one rendered row and its offset in the full plain message.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MessageRowLayout {
+    /// Index of this row in the entry's rendered output.
+    pub line_index: usize,
+    /// `[start, end)` in the concatenated plain message text.
+    pub global_range: Range<usize>,
+    /// Message column within the rendered row (visible character indices).
+    pub message_field: Range<usize>,
+}
+
+/// Plain message text rebuilt from what was actually rendered (supports wrap).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct RenderedMessageLayout {
+    /// Full message plain text in display order across wrapped rows.
+    pub plain_message: String,
+    /// Per-row message slices aligned with rendered output lines.
+    pub rows: Vec<MessageRowLayout>,
+}
+
+impl RenderedMessageLayout {
+    /// Derives message layout from the plain text of each rendered row.
+    pub fn from_plain_lines(plain_lines: &[String], args: &CliArgs, header_width: usize) -> Self {
+        let mut rows = Vec::default();
+        let mut plain_message = String::new();
+        let mut global = 0usize;
+
+        for (line_index, line) in plain_lines.iter().enumerate() {
+            let char_len = line.chars().count();
+            let message_field = message_field_char_range(args, line_index, char_len, header_width);
+            if message_field.is_empty() {
+                continue;
+            }
+
+            let chunk: String = line
+                .chars()
+                .skip(message_field.start)
+                .take(message_field.end - message_field.start)
+                .collect();
+            let chunk_len = chunk.chars().count();
+            if chunk_len == 0usize {
+                continue;
+            }
+
+            rows.push(MessageRowLayout {
+                line_index,
+                global_range: global..global + chunk_len,
+                message_field,
+            });
+            plain_message.push_str(&chunk);
+            global += chunk_len;
+        }
+
+        Self {
+            plain_message,
+            rows,
+        }
+    }
+}
+
+/// Builds highlight scopes for one rendered row of `entry`.
+pub fn entry_line_highlight_scopes(
+    filters: &TuiFilterSet,
+    entry: &LogEntry,
+    args: &CliArgs,
+    state: &State,
+    line_index: usize,
+    plain_line: &str,
+    layout: &RenderedMessageLayout,
+) -> Vec<(FilterHighlightRule, Range<usize>)> {
+    let line_char_len = plain_line.chars().count();
+    let rules = filters.highlight_rules(entry);
+    if rules.is_empty() || line_char_len == 0usize {
+        return Vec::default();
+    }
+
+    match entry.kind {
+        LogEntryKind::ProcessStart | LogEntryKind::ProcessDeath => {
+            lifecycle_line_scopes(&rules, line_char_len)
+        }
+        LogEntryKind::Normal => {
+            normal_line_scopes(&rules, entry, args, state, line_index, plain_line, layout)
+        }
+    }
+}
+
+fn lifecycle_line_scopes(
+    rules: &[FilterHighlightRule],
+    line_char_len: usize,
+) -> Vec<(FilterHighlightRule, Range<usize>)> {
+    let scope = 0usize..line_char_len;
+    rules
+        .iter()
+        .filter(|rule| {
+            matches!(
+                rule.field,
+                FilterHighlightField::Message
+                    | FilterHighlightField::Package
+                    | FilterHighlightField::Pid
+                    | FilterHighlightField::Uid
+            )
+        })
+        .map(|rule| (rule.clone(), scope.clone()))
+        .collect()
+}
+
+fn normal_line_scopes(
+    rules: &[FilterHighlightRule],
+    entry: &LogEntry,
+    args: &CliArgs,
+    state: &State,
+    line_index: usize,
+    plain_line: &str,
+    layout: &RenderedMessageLayout,
+) -> Vec<(FilterHighlightRule, Range<usize>)> {
+    let columns = log_line_column_ranges_for_entry(entry, args, state);
+    let mut scoped = Vec::default();
+
+    for rule in rules {
+        match rule.field {
+            FilterHighlightField::Pid if line_index == 0usize => {
+                push_column_scope(&mut scoped, rule, columns.pid.as_ref(), plain_line);
+            }
+            FilterHighlightField::Uid if line_index == 0usize => {
+                push_column_scope(&mut scoped, rule, columns.uid.as_ref(), plain_line);
+            }
+            FilterHighlightField::Package if line_index == 0usize => {
+                push_column_scope(&mut scoped, rule, columns.package.as_ref(), plain_line);
+            }
+            FilterHighlightField::Tag if line_index == 0usize => {
+                push_column_scope(&mut scoped, rule, columns.tag.as_ref(), plain_line);
+            }
+            FilterHighlightField::Message => {
+                push_message_scopes(&mut scoped, rule, line_index, layout);
+            }
+            _ => {}
+        }
+    }
+
+    scoped
+}
+
+fn push_column_scope(
+    scoped: &mut Vec<(FilterHighlightRule, Range<usize>)>,
+    rule: &FilterHighlightRule,
+    column: Option<&Range<usize>>,
+    plain_line: &str,
+) {
+    let Some(column) = column else {
+        return;
+    };
+
+    let plain_chars: Vec<char> = plain_line.chars().collect();
+    let line_len = plain_chars.len();
+    let col_start = column.start.min(line_len);
+    let col_end = column.end.min(line_len);
+    if col_start >= col_end {
+        return;
+    }
+
+    let haystack: String = plain_chars[col_start..col_end].iter().collect();
+    for (rel_start, rel_end) in find_match_ranges(&haystack, &rule.needle, rule.case_insensitive) {
+        scoped.push((rule.clone(), col_start + rel_start..col_start + rel_end));
+    }
+}
+
+fn push_message_scopes(
+    scoped: &mut Vec<(FilterHighlightRule, Range<usize>)>,
+    rule: &FilterHighlightRule,
+    line_index: usize,
+    layout: &RenderedMessageLayout,
+) {
+    let Some(row) = layout.rows.iter().find(|row| row.line_index == line_index) else {
+        return;
+    };
+
+    let seg_start = row.global_range.start;
+    let seg_end = row.global_range.end;
+    let message_field = &row.message_field;
+
+    for (match_start, match_end) in
+        find_match_ranges(&layout.plain_message, &rule.needle, rule.case_insensitive)
+    {
+        let overlap_start = match_start.max(seg_start);
+        let overlap_end = match_end.min(seg_end);
+        if overlap_start >= overlap_end {
+            continue;
+        }
+
+        let local_start = message_field.start + (overlap_start - seg_start);
+        let local_end = message_field.start + (overlap_end - seg_start);
+        if local_start < local_end && local_end <= message_field.end {
+            scoped.push((rule.clone(), local_start..local_end));
+        }
+    }
+}
+
+/// Applies filter-token highlights to a parsed log line within the given scopes.
+pub fn apply_filter_highlights(
+    line: Line<'static>,
+    scoped_rules: &[(FilterHighlightRule, Range<usize>)],
+) -> Line<'static> {
+    if scoped_rules.is_empty() {
+        return line;
+    }
+
+    let plain: String = line
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect();
+    let char_len = plain.chars().count();
+    if char_len == 0 {
+        return line;
+    }
+
+    let mut marked = vec![false; char_len];
+    for (rule, scope) in scoped_rules {
+        let scope_start = scope.start.min(char_len);
+        let scope_end = scope.end.min(char_len);
+        if scope_start >= scope_end {
+            continue;
+        }
+
+        let haystack: String = plain
+            .chars()
+            .skip(scope_start)
+            .take(scope_end - scope_start)
+            .collect();
+        for (rel_start, rel_end) in
+            find_match_ranges(&haystack, &rule.needle, rule.case_insensitive)
+        {
+            let start = scope_start + rel_start;
+            let end = scope_start + rel_end;
+            for slot in marked.iter_mut().take(end).skip(start) {
+                *slot = true;
+            }
+        }
+    }
+
+    if !marked.iter().any(|flag| *flag) {
+        return line;
+    }
+
+    split_line_by_marks(line, &marked)
+}
+
+fn split_line_by_marks(line: Line<'static>, marked: &[bool]) -> Line<'static> {
+    let mut new_spans = Vec::default();
+    let mut char_index = 0usize;
+
+    for span in line.spans {
+        let chars: Vec<char> = span.content.chars().collect();
+        let mut local = 0usize;
+        while local < chars.len() {
+            let highlight = marked[char_index + local];
+            let mut run_end = local + 1usize;
+            while run_end < chars.len() && marked[char_index + run_end] == highlight {
+                run_end += 1;
+            }
+
+            let text: String = chars[local..run_end].iter().collect();
+            let style = if highlight {
+                let token_fg = effective_foreground(span.style);
+                Style::default()
+                    .fg(contrasting_foreground(token_fg))
+                    .bg(token_fg)
+            } else {
+                span.style
+            };
+            new_spans.push(Span::styled(text, style));
+            local = run_end;
+        }
+        char_index += chars.len();
+    }
+
+    Line::from(new_spans)
+}
+
+fn find_match_ranges(haystack: &str, needle: &str, case_insensitive: bool) -> Vec<(usize, usize)> {
+    if needle.is_empty() {
+        return Vec::default();
+    }
+
+    let hay_chars: Vec<char> = haystack.chars().collect();
+    let needle_chars: Vec<char> = needle.chars().collect();
+    let needle_len = needle_chars.len();
+    if needle_len == 0 || needle_len > hay_chars.len() {
+        return Vec::default();
+    }
+
+    let mut ranges = Vec::default();
+    let last_start = hay_chars.len() - needle_len;
+
+    for start in 0..=last_start {
+        let mut matches = true;
+        for offset in 0..needle_len {
+            let hay = hay_chars[start + offset];
+            let ndl = needle_chars[offset];
+            if case_insensitive {
+                if !hay.eq_ignore_ascii_case(&ndl) {
+                    matches = false;
+                    break;
+                }
+            } else if hay != ndl {
+                matches = false;
+                break;
+            }
+        }
+        if matches {
+            ranges.push((start, start + needle_len));
+        }
+    }
+
+    ranges
+}
+
+fn effective_foreground(style: Style) -> Color {
+    match style.fg {
+        None | Some(Color::Reset) => theme::text(),
+        Some(Color::Indexed(index)) => indexed_color(index),
+        Some(color) => color,
+    }
+}
+
+/// Picks black or white text for readability on `background`.
+fn contrasting_foreground(background: Color) -> Color {
+    let (r, g, b) = color_to_rgb(background);
+    let linear = |channel: u8| {
+        let value = f64::from(channel) / 255.0;
+        if value <= 0.03928 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let luminance = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+    if luminance > 0.179 {
+        Color::Rgb(0, 0, 0)
+    } else {
+        Color::Rgb(255, 255, 255)
+    }
+}
+
+fn color_to_rgb(color: Color) -> (u8, u8, u8) {
+    match color {
+        Color::Rgb(r, g, b) => (r, g, b),
+        Color::Indexed(index) => color_to_rgb(indexed_color(index)),
+        Color::Black => (0, 0, 0),
+        Color::Gray => (128, 128, 128),
+        Color::DarkGray => (128, 128, 128),
+        Color::Red => (128, 0, 0),
+        Color::LightRed => (255, 0, 0),
+        Color::Green => (0, 128, 0),
+        Color::LightGreen => (0, 255, 0),
+        Color::Yellow => (128, 128, 0),
+        Color::LightYellow => (255, 255, 0),
+        Color::Blue => (0, 0, 128),
+        Color::LightBlue => (0, 0, 255),
+        Color::Magenta => (128, 0, 128),
+        Color::LightMagenta => (255, 0, 255),
+        Color::Cyan => (0, 128, 128),
+        Color::LightCyan => (0, 255, 255),
+        Color::White => (255, 255, 255),
+        Color::Reset => color_to_rgb(theme::text()),
+    }
+}
+
+fn indexed_color(index: u8) -> Color {
+    match index {
+        0..=15 => basic_sgr_foreground(match index {
+            0 => 30,
+            1 => 31,
+            2 => 32,
+            3 => 33,
+            4 => 34,
+            5 => 35,
+            6 => 36,
+            7 => 37,
+            8 => 90,
+            9 => 91,
+            10 => 92,
+            11 => 93,
+            12 => 94,
+            13 => 95,
+            14 => 96,
+            _ => 97,
+        }),
+        232..=255 => {
+            let gray = 8 + (index - 232) * 10;
+            Color::Rgb(gray, gray, gray)
+        }
+        _ => {
+            let index = index - 16;
+            let r = index / 36;
+            let g = (index / 6) % 6;
+            let b = index % 6;
+            let channel = |value: u8| {
+                if value == 0 { 0 } else { 55 + value * 40 }
+            };
+            Color::Rgb(channel(r), channel(g), channel(b))
+        }
+    }
+}
+
+fn basic_sgr_foreground(code: u8) -> Color {
+    match code {
+        30 => Color::Black,
+        31 => Color::Red,
+        32 => Color::Green,
+        33 => Color::Yellow,
+        34 => Color::Blue,
+        35 => Color::Magenta,
+        36 => Color::Cyan,
+        37 => Color::White,
+        90 => Color::DarkGray,
+        91 => Color::LightRed,
+        92 => Color::LightGreen,
+        93 => Color::LightYellow,
+        94 => Color::LightBlue,
+        95 => Color::LightMagenta,
+        96 => Color::LightCyan,
+        97 => Color::White,
+        _ => theme::text(),
+    }
+}

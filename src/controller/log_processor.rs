@@ -389,6 +389,53 @@ pub fn is_matching_tag(tag: &str, tags: &[String]) -> bool {
     false
 }
 
+/// Returns the portion of `tag` that satisfied `filter`, for search highlighting.
+///
+/// Uses the same rules as [`is_matching_tag`]: regex filters (metacharacters present) yield the
+/// first regex match; plain filters yield the filter text itself when it matches as a
+/// case-insensitive substring.
+pub fn tag_filter_match_text(tag: &str, filter: &str) -> Option<String> {
+    let regex_chars = r".*+?[]{}()|\^$";
+    let m_tag = filter.trim();
+    if m_tag.is_empty() {
+        return None;
+    }
+
+    let is_regex = m_tag.chars().any(|char| regex_chars.contains(char));
+
+    if is_regex {
+        let pattern = if m_tag.starts_with('^') {
+            m_tag.to_string()
+        } else {
+            format!("^{m_tag}")
+        };
+
+        let mut cache = REGEX_CACHE
+            .lock()
+            .unwrap_or_panic("Failed to lock regex cache");
+        let re_opt = cache.entry(pattern.clone()).or_insert_with(|| {
+            RegexBuilder::new(&pattern)
+                .case_insensitive(true)
+                .build()
+                .ok()
+        });
+
+        return re_opt
+            .as_ref()?
+            .find(tag)
+            .map(|mat| mat.as_str().to_string());
+    }
+
+    if tag
+        .to_ascii_lowercase()
+        .contains(&m_tag.to_ascii_lowercase())
+    {
+        return Some(m_tag.to_string());
+    }
+
+    None
+}
+
 /// Returns the `(foreground, background)` colors of the level badge for `level`, from the active
 /// theme.
 ///
@@ -1622,6 +1669,133 @@ pub fn tui_log_border_columns(args: &CliArgs) -> Vec<(String, usize)> {
     ));
 
     columns
+}
+
+/// Visible-character spans of fixed header columns on the first row of a normal log entry.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LogLineColumnRanges {
+    /// Timestamp column plus trailing separator, if enabled.
+    pub timestamp: Option<std::ops::Range<usize>>,
+    /// PID column plus trailing separator, if enabled.
+    pub pid: Option<std::ops::Range<usize>>,
+    /// UID column plus trailing separator, if enabled.
+    pub uid: Option<std::ops::Range<usize>>,
+    /// Package column plus trailing separator, if enabled.
+    pub package: Option<std::ops::Range<usize>>,
+    /// Tag column plus trailing separator, if enabled.
+    pub tag: Option<std::ops::Range<usize>>,
+    /// Level badge plus trailing separator.
+    pub level: std::ops::Range<usize>,
+    /// Total header width in visible characters (start of the message column).
+    pub header_width: usize,
+}
+
+/// Column ranges and header width for one normal entry, mirroring [`render_normal_entry`].
+pub fn log_line_column_ranges_for_entry(
+    entry: &LogEntry,
+    args: &CliArgs,
+    _state: &State,
+) -> LogLineColumnRanges {
+    let mut pos = 0usize;
+
+    let timestamp = if args.show_timestamps {
+        let width = args.timestamp_width + 1usize;
+        let range = pos..pos + width;
+        pos += width;
+        Some(range)
+    } else {
+        None
+    };
+
+    let pid = if args.show_pid && !entry.pid.is_empty() {
+        let width = args.puid_width as usize + 1usize;
+        let range = pos..pos + width;
+        pos += width;
+        Some(range)
+    } else {
+        None
+    };
+
+    let uid = if args.show_uid && !entry.uid.is_empty() {
+        let width = args.puid_width as usize + 1usize;
+        let range = pos..pos + width;
+        pos += width;
+        Some(range)
+    } else {
+        None
+    };
+
+    let package = if args.show_package && !entry.owner.is_empty() {
+        let width = args.package_width as usize + 1usize;
+        let range = pos..pos + width;
+        pos += width;
+        Some(range)
+    } else {
+        None
+    };
+
+    let tag = if args.tag_width > 0 {
+        let width = args.tag_width as usize + 1usize;
+        let range = pos..pos + width;
+        pos += width;
+        Some(range)
+    } else {
+        None
+    };
+
+    let level = pos..pos + PLAIN_LEVEL_HEADER_WIDTH;
+    pos += PLAIN_LEVEL_HEADER_WIDTH;
+
+    LogLineColumnRanges {
+        timestamp,
+        pid,
+        uid,
+        package,
+        tag,
+        level,
+        header_width: pos,
+    }
+}
+
+/// Header width in visible columns before the message, matching [`render_normal_entry`].
+pub fn normal_entry_header_width(entry: &LogEntry, args: &CliArgs, state: &State) -> usize {
+    log_line_column_ranges_for_entry(entry, args, state).header_width
+}
+
+/// Character-length of the wrap connector prefix on a continuation row (` ╠═`, ` ╚═`, or spaces).
+const WRAP_CONNECTOR_CHAR_LEN: usize = 3usize;
+
+/// Visible-character range of the message field on one rendered row of a normal entry.
+pub fn message_field_char_range(
+    args: &CliArgs,
+    line_index: usize,
+    line_char_len: usize,
+    header_width: usize,
+) -> std::ops::Range<usize> {
+    if line_char_len == 0usize {
+        return 0usize..0usize;
+    }
+
+    if line_index == 0usize {
+        return header_width.min(line_char_len)..line_char_len;
+    }
+
+    let mut start = timestamp_field_width(args);
+    if args.show_timestamps {
+        start = start
+            .saturating_add(
+                header_width
+                    .saturating_sub(timestamp_field_width(args))
+                    .saturating_sub(4usize),
+            )
+            .saturating_add(WRAP_CONNECTOR_CHAR_LEN);
+    } else {
+        start = header_width
+            .saturating_sub(4usize)
+            .saturating_add(WRAP_CONNECTOR_CHAR_LEN);
+    }
+
+    start.min(line_char_len)..line_char_len
 }
 
 /// TUI log panel title — column names aligned like plain-mode output fields.

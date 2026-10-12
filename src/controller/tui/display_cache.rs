@@ -35,9 +35,15 @@ use ratatui::text::Line;
 
 use crate::CliArgs;
 use crate::LogEntry;
+use crate::LogEntryKind;
 use crate::State;
+use crate::TuiFilterSet;
+use crate::controller::log_processor::normal_entry_header_width;
 use crate::render_entry_lines;
 
+use super::filter_highlight::RenderedMessageLayout;
+use super::filter_highlight::apply_filter_highlights;
+use super::filter_highlight::entry_line_highlight_scopes;
 use super::ui::line_from_ansi;
 
 /// How many filtered entries to render into the display cache per frame.
@@ -180,6 +186,7 @@ impl DisplayCache {
     /// * `filter_generation` - Counter that changes whenever the filter
     ///   result is recomputed from scratch.
     /// * `budget` - Maximum number of entries to render in this call.
+    /// * `tui_filters` - Applied TUI filters; used for token highlighting.
     #[allow(clippy::too_many_arguments)]
     pub fn ensure(
         &mut self,
@@ -190,12 +197,19 @@ impl DisplayCache {
         width: i16,
         filter_generation: u64,
         budget: usize,
+        tui_filters: &TuiFilterSet,
     ) {
         let no_color = args.no_color;
 
         if self.needs_full_rebuild(filter_generation, width, no_color) {
             self.start_rebuild(ingest_state, width, no_color, filter_generation);
         }
+
+        let highlight_needles = if no_color || !tui_filters.has_token_highlights() {
+            None
+        } else {
+            Some(tui_filters)
+        };
 
         if budget == 0 || self.rendered_filtered_count >= filtered_indices.len() {
             return;
@@ -220,6 +234,7 @@ impl DisplayCache {
                     args,
                     width,
                     no_color,
+                    highlight_needles,
                 },
             );
         }
@@ -288,6 +303,8 @@ struct AppendEntryContext<'a> {
     width: i16,
     /// Whether to skip ANSI parsing and emit unstyled text.
     no_color: bool,
+    /// Applied filters for token highlighting, when coloring is enabled.
+    highlight_needles: Option<&'a TuiFilterSet>,
 }
 
 /// Renders one entry and appends its lines to the cache vectors.
@@ -305,11 +322,45 @@ fn append_entry(
     filtered_index: usize,
     ctx: &mut AppendEntryContext<'_>,
 ) {
-    for text in render_entry_lines(ctx.entry, ctx.render_state, ctx.args, ctx.width) {
+    let highlight_filters = ctx.highlight_needles;
+    let rendered_texts = render_entry_lines(ctx.entry, ctx.render_state, ctx.args, ctx.width);
+    let plain_lines: Vec<String> = rendered_texts
+        .iter()
+        .map(|text| strip_ansi_escapes::strip_str(text).to_string())
+        .collect();
+    let message_layout = match (highlight_filters, ctx.entry.kind) {
+        (Some(_), LogEntryKind::Normal) => {
+            let header_width = normal_entry_header_width(ctx.entry, ctx.args, ctx.render_state);
+            Some(RenderedMessageLayout::from_plain_lines(
+                &plain_lines,
+                ctx.args,
+                header_width,
+            ))
+        }
+        _ => None,
+    };
+    let empty_layout = RenderedMessageLayout::default();
+
+    for (line_index, text) in rendered_texts.into_iter().enumerate() {
         let line = if ctx.no_color {
             Line::from(text)
         } else {
-            line_from_ansi(&text)
+            let parsed = line_from_ansi(&text);
+            if let Some(filters) = highlight_filters {
+                let layout = message_layout.as_ref().unwrap_or(&empty_layout);
+                let scopes = entry_line_highlight_scopes(
+                    filters,
+                    ctx.entry,
+                    ctx.args,
+                    ctx.render_state,
+                    line_index,
+                    &plain_lines[line_index],
+                    layout,
+                );
+                apply_filter_highlights(parsed, &scopes)
+            } else {
+                parsed
+            }
         };
         lines.push(line);
         line_filtered_index.push(filtered_index);

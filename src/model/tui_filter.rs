@@ -18,10 +18,37 @@ use crate::LogEntry;
 use crate::LogEntryKind;
 use crate::LogLevel;
 use crate::State;
+use crate::controller::log_processor::tag_filter_match_text;
 use crate::controller::util::split_csv_values;
 use crate::package_name_contains;
 use crate::passes_log_level;
 use crate::passes_tag_filter;
+
+/// Which log column or region a highlight rule applies to.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FilterHighlightField {
+    /// PID column on the first row of a normal entry.
+    Pid,
+    /// UID column on the first row of a normal entry.
+    Uid,
+    /// Package column on the first row of a normal entry.
+    Package,
+    /// Tag column on the first row of a normal entry.
+    Tag,
+    /// Message body (including wrapped continuation rows).
+    Message,
+}
+
+/// One substring to highlight for an applied filter.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FilterHighlightRule {
+    /// Filter token text to locate.
+    pub needle: String,
+    /// When set, matching ignores ASCII case (same as filter predicates).
+    pub case_insensitive: bool,
+    /// Column or region where the needle may be highlighted.
+    pub field: FilterHighlightField,
+}
 
 /// One constraint parsed from the TUI filter input.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -63,6 +90,55 @@ impl TuiFilterSet {
     /// Returns true when no filters are configured.
     pub fn is_empty(&self) -> bool {
         self.filters.is_empty()
+    }
+
+    /// Returns true when any filter can drive token highlighting (everything except level).
+    pub fn has_token_highlights(&self) -> bool {
+        self.filters
+            .iter()
+            .any(|filter| !matches!(filter, TuiFilter::Level(_)))
+    }
+
+    /// Highlight rules for the active filters (level filters are ignored).
+    pub fn highlight_rules(&self, entry: &LogEntry) -> Vec<FilterHighlightRule> {
+        let mut rules = Vec::default();
+
+        for filter in &self.filters {
+            match filter {
+                TuiFilter::Pid(value) => rules.push(FilterHighlightRule {
+                    needle: value.clone(),
+                    case_insensitive: false,
+                    field: FilterHighlightField::Pid,
+                }),
+                TuiFilter::Uid(value) => rules.push(FilterHighlightRule {
+                    needle: value.clone(),
+                    case_insensitive: false,
+                    field: FilterHighlightField::Uid,
+                }),
+                TuiFilter::Package(value) => rules.push(FilterHighlightRule {
+                    needle: value.clone(),
+                    case_insensitive: true,
+                    field: FilterHighlightField::Package,
+                }),
+                TuiFilter::Tag(value) => {
+                    if let Some(text) = tag_filter_match_text(&entry.tag, value) {
+                        rules.push(FilterHighlightRule {
+                            needle: text,
+                            case_insensitive: true,
+                            field: FilterHighlightField::Tag,
+                        });
+                    }
+                }
+                TuiFilter::Keyword(value) => rules.push(FilterHighlightRule {
+                    needle: value.clone(),
+                    case_insensitive: true,
+                    field: FilterHighlightField::Message,
+                }),
+                TuiFilter::Level(_) => {}
+            }
+        }
+
+        dedupe_highlight_rules(rules)
     }
 
     /// Parses a filter bar string into typed [`TuiFilter`] values.
@@ -246,6 +322,25 @@ impl TuiFilterSet {
             level_filters.into_iter().min().unwrap_or(state.log_level)
         }
     }
+}
+
+fn dedupe_highlight_rules(rules: Vec<FilterHighlightRule>) -> Vec<FilterHighlightRule> {
+    let mut unique: Vec<FilterHighlightRule> = Vec::default();
+    'outer: for rule in rules {
+        if rule.needle.is_empty() {
+            continue;
+        }
+        for existing in &unique {
+            if existing.needle == rule.needle
+                && existing.case_insensitive == rule.case_insensitive
+                && existing.field == rule.field
+            {
+                continue 'outer;
+            }
+        }
+        unique.push(rule);
+    }
+    unique
 }
 
 /// Splits `input` on whitespace outside of double-quoted regions.
