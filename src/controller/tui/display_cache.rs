@@ -38,10 +38,13 @@ use crate::LogEntry;
 use crate::LogEntryKind;
 use crate::State;
 use crate::TuiFilterSet;
+use crate::controller::log_processor::format_log_message;
+use crate::controller::log_processor::message_fields_for_rendered_plain_lines;
+use crate::controller::log_processor::message_header_width_from_plain_first_line;
 use crate::controller::log_processor::normal_entry_header_width;
 use crate::render_entry_lines;
 
-use super::filter_highlight::RenderedMessageLayout;
+use super::filter_highlight::WrappedMessageLayout;
 use super::filter_highlight::apply_filter_highlights;
 use super::filter_highlight::entry_line_highlight_scopes;
 use super::ui::line_from_ansi;
@@ -328,18 +331,32 @@ fn append_entry(
         .iter()
         .map(|text| strip_ansi_escapes::strip_str(text).to_string())
         .collect();
-    let message_layout = match (highlight_filters, ctx.entry.kind) {
+    let message_fields = match (highlight_filters, ctx.entry.kind) {
         (Some(_), LogEntryKind::Normal) => {
-            let header_width = normal_entry_header_width(ctx.entry, ctx.args, ctx.render_state);
-            Some(RenderedMessageLayout::from_plain_lines(
+            let fallback = normal_entry_header_width(ctx.entry, ctx.args, ctx.render_state);
+            let message_plain =
+                strip_ansi_escapes::strip_str(format_log_message(ctx.args, &ctx.entry.message));
+            let first_line_start = plain_lines
+                .first()
+                .map(|first| {
+                    message_header_width_from_plain_first_line(first, &message_plain, fallback)
+                })
+                .unwrap_or(fallback);
+            message_fields_for_rendered_plain_lines(
                 &plain_lines,
+                &message_plain,
+                first_line_start,
                 ctx.args,
-                header_width,
-            ))
+            )
         }
+        _ => Vec::default(),
+    };
+    let message_layout = match (highlight_filters, ctx.entry.kind) {
+        (Some(_), LogEntryKind::Normal) if !message_fields.is_empty() => Some(
+            WrappedMessageLayout::from_rendered_plain_lines(&plain_lines, &message_fields),
+        ),
         _ => None,
     };
-    let empty_layout = RenderedMessageLayout::default();
 
     for (line_index, text) in rendered_texts.into_iter().enumerate() {
         let line = if ctx.no_color {
@@ -347,7 +364,6 @@ fn append_entry(
         } else {
             let parsed = line_from_ansi(&text);
             if let Some(filters) = highlight_filters {
-                let layout = message_layout.as_ref().unwrap_or(&empty_layout);
                 let scopes = entry_line_highlight_scopes(
                     filters,
                     ctx.entry,
@@ -355,7 +371,7 @@ fn append_entry(
                     ctx.render_state,
                     line_index,
                     &plain_lines[line_index],
-                    layout,
+                    message_layout.as_ref(),
                 );
                 apply_filter_highlights(parsed, &scopes)
             } else {

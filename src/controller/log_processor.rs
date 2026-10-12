@@ -1762,10 +1762,27 @@ pub fn normal_entry_header_width(entry: &LogEntry, args: &CliArgs, state: &State
     log_line_column_ranges_for_entry(entry, args, state).header_width
 }
 
-/// Character-length of the wrap connector prefix on a continuation row (` ╠═`, ` ╚═`, or spaces).
-const WRAP_CONNECTOR_CHAR_LEN: usize = 3usize;
+/// Visible length of the wrap connector (` ╠═`, ` ╚═`, or three spaces) plus the separator
+/// space written before the message on continuation rows (see [`get_wrapped_indent`]).
+const WRAP_CONNECTOR_PREFIX_CHAR_LEN: usize = 4usize;
 
 /// Visible-character range of the message field on one rendered row of a normal entry.
+///
+/// On the first row the message starts at `header_width`. On continuation rows the range skips
+/// the timestamp column (when enabled), wrap padding, and the connector prefix described in
+/// [`get_wrapped_indent`].
+///
+/// # Arguments
+///
+/// * `args` - CLI layout options (timestamps affect continuation-row prefix width).
+/// * `line_index` - Row index within the entry's rendered lines (`0` = header row).
+/// * `line_char_len` - Visible character length of that row's plain text.
+/// * `header_width` - Message column start on the first row, in visible characters.
+///
+/// # Returns
+///
+/// `[start, end)` character indices of the message on this row; empty when the row has no room
+/// for message text.
 pub fn message_field_char_range(
     args: &CliArgs,
     line_index: usize,
@@ -1788,14 +1805,159 @@ pub fn message_field_char_range(
                     .saturating_sub(timestamp_field_width(args))
                     .saturating_sub(4usize),
             )
-            .saturating_add(WRAP_CONNECTOR_CHAR_LEN);
+            .saturating_add(WRAP_CONNECTOR_PREFIX_CHAR_LEN);
     } else {
         start = header_width
             .saturating_sub(4usize)
-            .saturating_add(WRAP_CONNECTOR_CHAR_LEN);
+            .saturating_add(WRAP_CONNECTOR_PREFIX_CHAR_LEN);
     }
 
     start.min(line_char_len)..line_char_len
+}
+
+/// Message column start on the first rendered row of a normal entry.
+///
+/// Matches the visible prefix of `message_plain` inside `plain_first_line` (the ANSI-stripped
+/// first output line). Search is limited to a small window around `fallback_header_width` so
+/// tag-column text is not mistaken for the message. When no prefix fits, returns
+/// `fallback_header_width` from [`normal_entry_header_width`].
+///
+/// # Arguments
+///
+/// * `plain_first_line` - First rendered row without escape sequences.
+/// * `message_plain` - Formatted entry message without escape sequences.
+/// * `fallback_header_width` - Expected message start from column layout math.
+///
+/// # Returns
+///
+/// Visible-character index where the message begins on `plain_first_line`.
+pub fn message_header_width_from_plain_first_line(
+    plain_first_line: &str,
+    message_plain: &str,
+    fallback_header_width: usize,
+) -> usize {
+    if message_plain.is_empty() {
+        return fallback_header_width;
+    }
+
+    let line_chars: Vec<char> = plain_first_line.chars().collect();
+    let msg_chars: Vec<char> = message_plain.chars().collect();
+    let probe_len = msg_chars.len().min(12usize);
+    if probe_len == 0usize {
+        return fallback_header_width;
+    }
+
+    let probe: String = msg_chars[..probe_len].iter().collect();
+    let max_start = line_chars.len().saturating_sub(probe_len);
+
+    for delta in 0..=8usize {
+        for start in [
+            fallback_header_width.saturating_sub(delta),
+            fallback_header_width.saturating_add(delta),
+        ] {
+            if start > max_start {
+                continue;
+            }
+            let slice: String = line_chars[start..start + probe_len].iter().collect();
+            if slice == probe {
+                return start;
+            }
+        }
+    }
+
+    fallback_header_width
+}
+
+/// Visible-character range of the message on each rendered plain row of one entry.
+///
+/// Aligns rows to `message_plain` (formatted message, ANSI stripped) by searching for the next
+/// message substring on each line. This tracks wrapping correctly even when column-width math
+/// drifts from [`message_field_char_range`].
+///
+/// # Arguments
+///
+/// * `plain_lines` - One ANSI-stripped row per rendered output line for the entry.
+/// * `message_plain` - Full formatted message text (no escape sequences).
+/// * `first_line_fallback_start` - Expected message start on row `0` (see
+///   [`message_header_width_from_plain_first_line`]).
+/// * `args` - CLI layout options; used to fall back to [`message_field_char_range`] when content
+///   alignment fails on a row.
+///
+/// # Returns
+///
+/// One range per `plain_lines` element. Empty ranges mean no message slice was located on that
+/// row.
+pub fn message_fields_for_rendered_plain_lines(
+    plain_lines: &[String],
+    message_plain: &str,
+    first_line_fallback_start: usize,
+    args: &CliArgs,
+) -> Vec<std::ops::Range<usize>> {
+    let msg_chars: Vec<char> = message_plain.chars().collect();
+    if msg_chars.is_empty() {
+        return plain_lines
+            .iter()
+            .map(|line| line.chars().count()..line.chars().count())
+            .collect();
+    }
+
+    let mut message_idx = 0usize;
+    let mut ranges = Vec::with_capacity(plain_lines.len());
+
+    for (line_index, plain_line) in plain_lines.iter().enumerate() {
+        let line_chars: Vec<char> = plain_line.chars().collect();
+        let line_len = line_chars.len();
+
+        if message_idx >= msg_chars.len() || line_len == 0usize {
+            ranges.push(line_len..line_len);
+            continue;
+        }
+
+        let remaining = msg_chars.len() - message_idx;
+        let probe_len = remaining.min(12usize);
+        let probe: String = msg_chars[message_idx..message_idx + probe_len]
+            .iter()
+            .collect();
+
+        let search_start = if line_index == 0usize {
+            first_line_fallback_start.saturating_sub(8usize)
+        } else {
+            0usize
+        };
+        let max_start = line_len.saturating_sub(probe_len);
+        let mut found_start = None;
+        for start in search_start..=max_start {
+            let slice: String = line_chars[start..start + probe_len].iter().collect();
+            if slice == probe {
+                found_start = Some(start);
+                break;
+            }
+        }
+
+        let start = found_start.unwrap_or_else(|| {
+            message_field_char_range(args, line_index, line_len, first_line_fallback_start).start
+        });
+        if start >= line_len {
+            ranges.push(line_len..line_len);
+            continue;
+        }
+
+        ranges.push(start..line_len);
+
+        let mut consumed = 0usize;
+        while consumed < line_len.saturating_sub(start)
+            && message_idx + consumed < msg_chars.len()
+            && line_chars[start + consumed] == msg_chars[message_idx + consumed]
+        {
+            consumed += 1usize;
+        }
+        if consumed == 0usize {
+            consumed = probe_len;
+        }
+        message_idx += consumed;
+    }
+
+    ranges
 }
 
 /// TUI log panel title — column names aligned like plain-mode output fields.

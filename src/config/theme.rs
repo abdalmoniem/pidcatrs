@@ -45,7 +45,7 @@ use super::schema::schema_directive_prefix;
 
 use crate::ValueOrPanic;
 
-use theme_macros::include_bundled_themes;
+use theme_macros::get_bundled_themes;
 
 /// Default bundled theme used when none is configured.
 pub const DEFAULT_THEME_NAME: &str = "gruber-darker";
@@ -60,7 +60,9 @@ pub struct BundledTheme {
     pub source: &'static str,
 }
 
-include_bundled_themes!("src/config/themes");
+/// generated at build time from `themes/*.toml`
+/// contains all the theme names and their paths
+pub const BUNDLED_THEMES: &[BundledTheme] = get_bundled_themes!("src/config/themes");
 
 /// Lazily initialized active theme after [`set_active`].
 static ACTIVE_THEME: OnceLock<Theme> = OnceLock::new();
