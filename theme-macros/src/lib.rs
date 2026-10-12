@@ -12,7 +12,7 @@ use syn::LitStr;
 use syn::parse_macro_input;
 
 #[proc_macro]
-pub fn include_bundled_themes(input: TokenStream) -> TokenStream {
+pub fn get_bundled_themes(input: TokenStream) -> TokenStream {
     let themes_dir = parse_macro_input!(input as LitStr);
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set");
     let themes_dir_path = Path::new(&manifest_dir).join(themes_dir.value());
@@ -47,11 +47,7 @@ pub fn include_bundled_themes(input: TokenStream) -> TokenStream {
     });
 
     quote! {
-        /// generated at build time from `themes/*.toml`
-        /// contains all the theme names and their paths
-        pub const BUNDLED_THEMES: &[BundledTheme] = &[
-            #(#themes),*
-        ];
+        &[#(#themes),*]
     }
     .into()
 }
