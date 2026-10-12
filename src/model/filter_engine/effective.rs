@@ -11,6 +11,10 @@
 // GNU General Public License for more details.
 
 //! Combines user-visible queries with implicit CLI constraints.
+//!
+//! [`EffectiveFilter`] is the session-wide filter object used by plain mode, TUI recompute, and
+//! log ingest. Implicit `-i` / `ignore_tag` patterns are parsed into a separate AST and ANDed
+//! with the user query; they are not shown in the filter bar.
 
 #![deny(clippy::unwrap_used)]
 
@@ -39,7 +43,7 @@ pub struct EffectiveFilter {
     pub user_query: FilterQuery,
     /// Parsed implicit constraints from `ignore_tag` / config.
     pub implicit_query: FilterQuery,
-    /// Combined AST used for matching (`user AND implicit`).
+    /// Combined AST used for matching (`user AND implicit` when both are present).
     combined: FilterQuery,
 }
 
@@ -51,9 +55,9 @@ impl EffectiveFilter {
     /// * `user_source` — filter bar or `--query` string (implicit ignores are not included).
     /// * `args` — supplies `ignore_tag` patterns merged into the implicit query.
     ///
-    /// # Returns
+    /// # Errors
     ///
-    /// Parsed filter ready for [`Self::matches`], or a parse error from the user query.
+    /// Returns [`ParseError`] when `user_source` is not valid query syntax.
     pub fn from_user_source(user_source: &str, args: &CliArgs) -> Result<Self, ParseError> {
         let user_query = parse_query(user_source)?;
         let implicit_query = build_implicit_filter_query(args);
@@ -67,6 +71,13 @@ impl EffectiveFilter {
     }
 
     /// Returns true when the entry passes both user and implicit constraints.
+    ///
+    /// # Arguments
+    ///
+    /// * `entry` — Parsed log line to test.
+    /// * `state` — Session maps (UID names, package resolution).
+    /// * `now` — Wall clock for `age:` predicates.
+    /// * `args` — CLI options passed through to [`FilterContext`].
     pub fn matches(
         &self,
         entry: &LogEntry,
@@ -95,6 +106,16 @@ impl EffectiveFilter {
 }
 
 /// Builds a query that excludes tags matching `args.ignore_tag` patterns.
+///
+/// Each configured ignore pattern becomes a negated `tag:` term ANDed together.
+///
+/// # Arguments
+///
+/// * `args` — CLI configuration; when `ignore_tag` is unset the result has `root: None`.
+///
+/// # Returns
+///
+/// A [`FilterQuery`] with an empty `source` string (implicit only, not shown in the TUI).
 pub fn build_implicit_filter_query(args: &CliArgs) -> FilterQuery {
     let Some(tags) = &args.ignore_tag else {
         return FilterQuery {
@@ -133,6 +154,7 @@ pub fn build_implicit_filter_query(args: &CliArgs) -> FilterQuery {
     }
 }
 
+/// AND-combines user and implicit roots into one [`FilterQuery`] for evaluation.
 fn combine_queries(user: &FilterQuery, implicit: &FilterQuery) -> FilterQuery {
     let root = match (&user.root, &implicit.root) {
         (None, None) => None,

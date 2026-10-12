@@ -30,7 +30,7 @@ plain streaming and interactive TUI entry points, and core model types ([`LogEnt
 \n\
 - **config** — paths, documented TOML config, JSON Schema, shell completions, themes.\n\
 - **controller** — adb, log processing, plain/TUI runners, terminal restore, output writers.\n\
-- **model** — CLI args, parsed log lines, filters, session state, ANSI segments.\
+- **model** — CLI args, parsed log lines, [`filter_engine`] query parse/eval, session state, ANSI segments.\
 "]
 
 /// Configuration paths, file format, JSON Schema, shell completions, and color themes.

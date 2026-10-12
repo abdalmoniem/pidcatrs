@@ -6,8 +6,22 @@
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
+//
+// pidcatrs is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with pidcatrs.  If not, see <https://www.gnu.org/licenses/>.
+//
+// Author: AbdAlMoniem AlHifnawy
 
 //! Inline filter key autocomplete menu at the terminal cursor.
+//!
+//! While the filter bar is focused, typing a key name (or pressing Ctrl+Space) opens a floating
+//! popup listing `key:` and `key~` completions. The popup is drawn over the log table without
+//! changing filter bar height ([`FilterAutocomplete::render_popup`]).
 
 #![deny(clippy::unwrap_used)]
 
@@ -25,11 +39,14 @@ use super::theme;
 /// One autocomplete row: `key:` or `key~`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct FilterKeySuggestion {
+    /// Filter field for this row.
     key: crate::model::filter_engine::FilterKey,
+    /// When true, the row inserts `~` (regex operator) instead of `:`.
     regex: bool,
 }
 
 impl FilterKeySuggestion {
+    /// Text inserted into the filter bar when this row is accepted.
     fn insertion_text(self) -> String {
         let name = self.key.as_str();
         if self.regex {
@@ -39,6 +56,7 @@ impl FilterKeySuggestion {
         }
     }
 
+    /// Display width in terminal columns (`key` plus one operator character).
     fn display_width(self) -> usize {
         self.key.as_str().chars().count() + 1
     }
@@ -47,13 +65,21 @@ impl FilterKeySuggestion {
 /// State of the inline key autocomplete popup.
 #[derive(Clone, Debug, Default)]
 pub struct FilterAutocomplete {
+    /// Visible completion rows for the current key prefix.
     options: Vec<FilterKeySuggestion>,
+    /// Highlighted row index in `options`.
     selected: usize,
+    /// Lowercase key prefix being completed (empty means all keys).
     prefix: String,
 }
 
 impl FilterAutocomplete {
     /// Opens or refreshes the menu at `cursor` (typing or Ctrl+Space).
+    ///
+    /// # Arguments
+    ///
+    /// * `input` — Full filter bar text.
+    /// * `cursor` — Cursor position in characters.
     pub fn refresh_at_cursor(&mut self, input: &str, cursor: usize) {
         let previous = self.options.get(self.selected).copied();
         let Some(prefix) = super::filter_input::completion_prefix_at_cursor(input, cursor) else {
@@ -72,14 +98,21 @@ impl FilterAutocomplete {
             .unwrap_or_default();
     }
 
+    /// Returns the key prefix used to build the current `options` list.
     pub fn prefix(&self) -> &str {
         &self.prefix
     }
 
+    /// Returns true when at least one completion row is available.
     pub fn is_open(&self) -> bool {
         !self.options.is_empty()
     }
 
+    /// Moves the highlighted row by `delta`, wrapping at the list ends.
+    ///
+    /// # Arguments
+    ///
+    /// * `delta` — Row delta (`-1` / `+1` for arrow keys).
     pub fn move_selection(&mut self, delta: isize) {
         if self.options.is_empty() {
             return;
@@ -89,10 +122,19 @@ impl FilterAutocomplete {
         self.selected = next as usize;
     }
 
+    /// Returns the insertion text for the highlighted row, or `None` when the menu is empty.
     pub fn accept_key(&self) -> Option<String> {
         Some(self.options.get(self.selected)?.insertion_text())
     }
 
+    /// Draws the popup near `(cursor_x, cursor_y)` inside the filter panel.
+    ///
+    /// # Arguments
+    ///
+    /// * `frame` — Target frame.
+    /// * `inner` — Inner rectangle of the filter panel (used to clamp horizontal position).
+    /// * `cursor_x` — Terminal column of the text cursor.
+    /// * `cursor_y` — Terminal row of the text cursor.
     pub fn render_popup(
         &self,
         frame: &mut ratatui::Frame,

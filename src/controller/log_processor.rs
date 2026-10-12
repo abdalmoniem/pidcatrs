@@ -829,10 +829,17 @@ pub fn flush_long_log_entry(state: &mut State, args: &CliArgs, writers: &mut [Wr
     }
 }
 
-/// Parses one input line and renders every resulting entry to `writers`, then flushes all
-/// writers.
+/// Parses one input line and renders matching entries to `writers`, then flushes all writers.
 ///
 /// This is the plain-mode entry point that combines [`process_log_input`] and [`render_entry`].
+///
+/// # Arguments
+///
+/// * `line` — One raw logcat line.
+/// * `state` — Session parsing state.
+/// * `args` — CLI formatting options.
+/// * `writers` — Output sinks to render into.
+/// * `filter` — Effective filter; entries that fail [`EffectiveFilter::matches`] are skipped.
 pub fn write_log_line(
     line: &str,
     state: &mut State,

@@ -6,8 +6,21 @@
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
+//
+// pidcatrs is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with pidcatrs.  If not, see <https://www.gnu.org/licenses/>.
+//
+// Author: AbdAlMoniem AlHifnawy
 
 //! Multiline filter field layout and syntax coloring for the filter bar.
+//!
+//! Provides soft wrapping, collapsed display when unfocused, accent coloring of filter keys,
+//! word-oriented editing helpers, and key-name completion prefix detection.
 
 #![deny(clippy::unwrap_used)]
 
@@ -25,6 +38,15 @@ use super::theme;
 /// Soft-wraps `text` into lines of at most `width` columns (character-based).
 ///
 /// Every character in `text` is preserved, including spaces and trailing whitespace.
+///
+/// # Arguments
+///
+/// * `text` — Filter bar contents.
+/// * `width` — Maximum line width in characters (clamped to at least 1).
+///
+/// # Returns
+///
+/// One string per wrapped row; a single empty row when `text` is empty.
 pub fn wrap_filter_lines(text: &str, width: usize) -> Vec<String> {
     let width = width.max(1);
     if text.is_empty() {
@@ -49,6 +71,11 @@ pub fn wrap_filter_lines(text: &str, width: usize) -> Vec<String> {
 }
 
 /// First wrapped line of `text`, truncated to `width` with an ellipsis when it overflows.
+///
+/// # Arguments
+///
+/// * `text` — Filter bar contents.
+/// * `width` — Maximum visible width when the bar is collapsed.
 pub fn collapsed_filter_display(text: &str, width: usize) -> String {
     let width = width.max(1);
     if text.is_empty() {
@@ -68,11 +95,25 @@ pub fn collapsed_filter_display(text: &str, width: usize) -> String {
 }
 
 /// Outer panel height for the filter bar (top border + content rows + bottom border).
+///
+/// # Arguments
+///
+/// * `content_lines` — Number of wrapped content rows (at least one).
 pub fn filter_panel_height(content_lines: usize) -> u16 {
     (2 + content_lines.max(1)) as u16
 }
 
 /// Maps a global character cursor index to `(row, col)` in wrapped `text`.
+///
+/// # Arguments
+///
+/// * `text` — Filter bar contents.
+/// * `width` — Wrap width in characters.
+/// * `cursor` — Cursor index in characters from the start of `text`.
+///
+/// # Returns
+///
+/// Zero-based `(row, col)` for terminal cursor placement.
 pub fn cursor_wrapped_position(text: &str, width: usize, cursor: usize) -> (usize, usize) {
     let width = width.max(1);
     let mut row = 0usize;
@@ -93,6 +134,13 @@ pub fn cursor_wrapped_position(text: &str, width: usize, cursor: usize) -> (usiz
 }
 
 /// Builds styled lines for the filter field (syntax-colored when `input` is non-empty).
+///
+/// # Arguments
+///
+/// * `input` — Filter bar text.
+/// * `width` — Inner panel width for wrapping when focused.
+/// * `focused` — When false, shows a single collapsed line.
+/// * `placeholder` — Hint shown when `input` is empty and unfocused.
 pub fn styled_filter_content(
     input: &str,
     width: usize,
@@ -151,6 +199,7 @@ pub fn styled_filter_content(
     }
 }
 
+/// Builds one styled [`Line`] from a substring and a per-character accent mask.
 fn line_from_char_mask(
     line: &str,
     global_offset: usize,
@@ -180,6 +229,7 @@ fn line_from_char_mask(
     Line::from(pieces)
 }
 
+/// Appends one accent or plain run to `pieces`.
 fn push_run(pieces: &mut Vec<Span<'static>>, text: String, accented: bool, accent: Style) {
     if text.is_empty() {
         return;
@@ -213,6 +263,7 @@ fn accent_char_mask(input: &str) -> Vec<bool> {
     mask
 }
 
+/// Collects all key/operator source spans from `expr` into `out`.
 fn collect_key_spans(expr: &FilterExpr, out: &mut Vec<SourceSpan>) {
     match expr {
         FilterExpr::Term(term) => {
@@ -256,6 +307,7 @@ pub fn completion_prefix_at_cursor(input: &str, cursor: usize) -> Option<String>
     Some(prefix.to_ascii_lowercase())
 }
 
+/// Maps a character index in `text` to a UTF-8 byte offset.
 fn char_index_to_byte(text: &str, char_index: usize) -> usize {
     text.char_indices()
         .nth(char_index)
@@ -263,6 +315,7 @@ fn char_index_to_byte(text: &str, char_index: usize) -> usize {
         .unwrap_or(text.len())
 }
 
+/// Collects `input` into a character vector for word editing helpers.
 fn filter_chars(input: &str) -> Vec<char> {
     input.chars().collect()
 }
@@ -343,6 +396,14 @@ pub fn filter_delete_word_after(input: &mut String, cursor: usize) -> usize {
 }
 
 /// Returns `key:` and (when supported) `key~` suggestions matching `prefix`.
+///
+/// # Arguments
+///
+/// * `prefix` — Lowercase key prefix; empty matches all autocomplete keys.
+///
+/// # Returns
+///
+/// Pairs of [`FilterKey`] and regex-row flag (`true` for `~` rows).
 pub fn matching_filter_suggestions(prefix: &str) -> Vec<(FilterKey, bool)> {
     FilterKey::autocomplete_keys()
         .iter()

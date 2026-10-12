@@ -915,7 +915,9 @@ impl TuiApp {
         }
     }
 
-    /// Re-parses the filter bar while editing; invalid input keeps the last applied filter.
+    /// Re-parses the filter bar while editing when [`CliArgs::live_filter`] is enabled.
+    ///
+    /// Invalid input keeps the last applied filter and shows a parse error in the status bar.
     fn live_apply_filter(&mut self) {
         if self.filter_focused && self.args.live_filter {
             self.apply_effective_filter_from_input();
@@ -1278,6 +1280,7 @@ impl TuiApp {
         }
     }
 
+    /// Clears filter text, closes autocomplete, and applies an empty filter (respects live mode).
     fn clear_filter_bar(&mut self) {
         self.filter_input.clear();
         self.filter_cursor = 0;
@@ -1285,6 +1288,7 @@ impl TuiApp {
         self.live_apply_filter();
     }
 
+    /// Refreshes autocomplete at the cursor and runs [`Self::live_apply_filter`].
     fn after_filter_text_edit(&mut self) {
         self.filter_autocomplete
             .refresh_at_cursor(&self.filter_input, self.filter_cursor);

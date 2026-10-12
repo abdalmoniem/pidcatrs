@@ -11,6 +11,10 @@
 // GNU General Public License for more details.
 
 //! Lexer and parser for Logcat-style filter query strings.
+//!
+//! The parser produces a [`FilterQuery`] AST with source spans for TUI syntax coloring.
+//! Whitespace-separated terms are ANDed; `|` builds OR nodes; `-` prefixes terms or parenthesized
+//! groups for negation. Quoted strings are always message literals.
 
 #![deny(clippy::unwrap_used)]
 
@@ -37,6 +41,10 @@ pub enum FilterKey {
 
 impl FilterKey {
     /// Parses a key name from user input (ASCII case-insensitive).
+    ///
+    /// # Returns
+    ///
+    /// `None` when `name` is not a known filter key.
     pub fn parse_name(name: &str) -> Option<Self> {
         match name.to_ascii_lowercase().as_str() {
             "pid" => Some(Self::Pid),
@@ -148,7 +156,19 @@ pub struct ParseError {
 
 /// Parses `input` into a [`FilterQuery`].
 ///
-/// Empty input yields `root: None` (matches all entries when no other constraints apply).
+/// # Arguments
+///
+/// * `input` — Raw query text from the filter bar or `--query`.
+///
+/// # Returns
+///
+/// A query whose `source` preserves `input`. Empty or whitespace-only input yields `root: None`
+/// (matches all entries when no other constraints apply).
+///
+/// # Errors
+///
+/// Returns [`ParseError`] with a character index when the syntax is invalid or trailing garbage
+/// remains after a successful parse.
 pub fn parse_query(input: &str) -> Result<FilterQuery, ParseError> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
@@ -175,19 +195,29 @@ pub fn parse_query(input: &str) -> Result<FilterQuery, ParseError> {
     })
 }
 
-/// Returns true when `query` has no root or an empty AST (accepts every entry).
+/// Returns true when `query` has no root (accepts every entry before implicit constraints).
+///
+/// # Arguments
+///
+/// * `query` — Parsed user or combined query.
 pub fn query_accepts_all_entries(query: &FilterQuery) -> bool {
     query.root.is_none()
 }
 
+/// Incremental parser over one query string (byte and character cursors for error locations).
 struct Parser<'a> {
+    /// Original source slice (for span calculation and error indices).
     source: &'a str,
+    /// Remaining characters to consume.
     chars: std::iter::Peekable<std::str::Chars<'a>>,
+    /// Current byte offset into `source`.
     byte_offset: usize,
+    /// Current character index into `source` (for [`ParseError::char_index`]).
     char_index: usize,
 }
 
 impl<'a> Parser<'a> {
+    /// Parses a chain of AND expressions separated by `|`.
     fn parse_or(&mut self) -> Result<FilterExpr, ParseError> {
         let mut parts = vec![self.parse_and()?];
         loop {
@@ -202,6 +232,7 @@ impl<'a> Parser<'a> {
         Ok(flatten_or(parts))
     }
 
+    /// Parses whitespace-separated NOT/primary terms until `|`, `)`, or end of input.
     fn parse_and(&mut self) -> Result<FilterExpr, ParseError> {
         let mut parts = Vec::default();
         loop {
@@ -214,6 +245,7 @@ impl<'a> Parser<'a> {
         Ok(flatten_and(parts))
     }
 
+    /// Parses an optional leading `-` and applies negation to the following primary.
     fn parse_not(&mut self) -> Result<FilterExpr, ParseError> {
         self.skip_ws();
         let neg_span = if self.peek() == Some('-') {
@@ -233,6 +265,7 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
+    /// Parses a parenthesized sub-expression or a single [`FilterTerm`].
     fn parse_primary(&mut self) -> Result<FilterExpr, ParseError> {
         self.skip_ws();
         match self.peek() {
@@ -249,6 +282,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parses one leaf predicate (quoted message, `key:value`, `key~regex`, or bare message word).
     fn parse_term(&mut self) -> Result<FilterTerm, ParseError> {
         let term_start = self.byte_offset;
         self.skip_ws();
@@ -347,6 +381,7 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Consumes a double-quoted string literal and returns the unescaped value and span.
     fn read_quoted(&mut self) -> Result<(String, SourceSpan), ParseError> {
         let start = self.byte_offset;
         if self.next_char() != Some('"') {
@@ -368,6 +403,7 @@ impl<'a> Parser<'a> {
         Err(self.error("unclosed double quote"))
     }
 
+    /// Reads one unquoted token up to whitespace, `|`, `(`, or `)`.
     fn read_bare_token(&mut self) -> Result<(String, SourceSpan), ParseError> {
         let start = self.byte_offset;
         let mut out = String::new();
@@ -390,16 +426,19 @@ impl<'a> Parser<'a> {
         ))
     }
 
+    /// Advances past ASCII whitespace.
     fn skip_ws(&mut self) {
         while matches!(self.peek(), Some(c) if c.is_whitespace()) {
             self.next_char();
         }
     }
 
+    /// Returns the next character without consuming it.
     fn peek(&mut self) -> Option<char> {
         self.chars.peek().copied()
     }
 
+    /// Consumes and returns the next character, updating byte and character cursors.
     fn next_char(&mut self) -> Option<char> {
         let ch = self.chars.next()?;
         self.byte_offset += ch.len_utf8();
@@ -407,6 +446,7 @@ impl<'a> Parser<'a> {
         Some(ch)
     }
 
+    /// Builds a [`ParseError`] at the current character cursor.
     fn error(&self, message: &str) -> ParseError {
         ParseError {
             message: message.to_string(),
@@ -414,6 +454,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Builds a [`ParseError`] at a specific byte offset in the source.
     fn error_at(&self, byte_offset: usize, message: &str) -> ParseError {
         ParseError {
             message: message.to_string(),
@@ -422,10 +463,12 @@ impl<'a> Parser<'a> {
     }
 }
 
+/// Converts a byte offset in `source` to a character index for error reporting.
 fn byte_offset_to_char_index(source: &str, byte_offset: usize) -> usize {
     source[..byte_offset.min(source.len())].chars().count()
 }
 
+/// Removes surrounding `"` from a value token when present.
 fn strip_quotes(value: &str) -> String {
     if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
         value[1..value.len() - 1].to_string()
@@ -434,6 +477,7 @@ fn strip_quotes(value: &str) -> String {
     }
 }
 
+/// Normalizes a vector of AND operands into a single [`FilterExpr::And`] or one child.
 fn flatten_and(parts: Vec<FilterExpr>) -> FilterExpr {
     if parts.is_empty() {
         FilterExpr::And(Vec::default())
@@ -444,6 +488,7 @@ fn flatten_and(parts: Vec<FilterExpr>) -> FilterExpr {
     }
 }
 
+/// Normalizes a vector of OR operands into a single [`FilterExpr::Or`] or one child.
 fn flatten_or(parts: Vec<FilterExpr>) -> FilterExpr {
     if parts.len() == 1 {
         parts.into_iter().next().unwrap_or_panic("len checked")
@@ -452,6 +497,7 @@ fn flatten_or(parts: Vec<FilterExpr>) -> FilterExpr {
     }
 }
 
+/// Applies `-` negation to `expr`, toggling leaf terms or wrapping non-leaves in [`FilterExpr::Not`].
 fn negate_expr(expr: FilterExpr, neg_span: SourceSpan) -> FilterExpr {
     match expr {
         FilterExpr::Term(mut term) => {
@@ -465,8 +511,11 @@ fn negate_expr(expr: FilterExpr, neg_span: SourceSpan) -> FilterExpr {
     }
 }
 
+/// Local helper to avoid `Option::unwrap` under `#![deny(clippy::unwrap_used)]`.
 trait UnwrapOrPanic {
+    /// The contained value type.
     type Item;
+    /// Returns the value or panics with `msg` (parser invariants only).
     fn unwrap_or_panic(self, msg: &str) -> Self::Item;
 }
 

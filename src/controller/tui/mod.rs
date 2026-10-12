@@ -28,6 +28,8 @@
 //! - `log_ingest` — background tasks that read log lines from `adb logcat`,
 //!   a file or a pipe and feed them to the application.
 //! - `display_cache` — an incremental cache of rendered (ANSI-parsed) lines.
+//! - `filter_input`, `filter_autocomplete`, `filter_highlight` — Logcat-style filter bar
+//!   editing, key completion popup, and in-line log highlighting from the query AST.
 //! - `palette`, `help`, `device_picker`, `copy`, `export`, `file_source` —
 //!   the dialogs/overlays and their supporting helpers.
 //! - `border`, `theme` — shared drawing primitives and theme-aware styles.

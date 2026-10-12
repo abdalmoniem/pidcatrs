@@ -11,6 +11,9 @@
 // GNU General Public License for more details.
 
 //! Evaluate parsed filter AST nodes against log entries.
+//!
+//! [`FilterContext::matches_query`] walks a [`FilterQuery`] AST and applies field-specific
+//! matching rules (equality, substring, regex, tag glob, log level floor, max age).
 
 #![deny(clippy::unwrap_used)]
 
@@ -48,6 +51,10 @@ pub struct FilterContext<'a> {
 
 impl FilterContext<'_> {
     /// Returns true when `query` matches this context's entry.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` — Parsed filter AST (typically the combined user + implicit query).
     pub fn matches_query(&self, query: &FilterQuery) -> bool {
         match &query.root {
             None => true,
@@ -57,6 +64,7 @@ impl FilterContext<'_> {
 }
 
 impl<'a> FilterContext<'a> {
+    /// Recursively evaluates one AST node.
     fn eval_expr(&self, expr: &FilterExpr) -> bool {
         match expr {
             FilterExpr::Term(term) => {
@@ -75,6 +83,7 @@ impl<'a> FilterContext<'a> {
         }
     }
 
+    /// Evaluates a leaf term against a normal log line.
     fn eval_term(&self, term: &FilterTerm) -> bool {
         if matches!(
             self.entry.kind,
@@ -94,6 +103,7 @@ impl<'a> FilterContext<'a> {
         }
     }
 
+    /// Evaluates a leaf term for process start/death banner rows (tag/level always match).
     fn eval_lifecycle_term(&self, term: &FilterTerm) -> bool {
         match term.key {
             FilterKey::Tag | FilterKey::Level => true,
@@ -105,6 +115,7 @@ impl<'a> FilterContext<'a> {
         }
     }
 
+    /// Exact string or regex match for PID-style columns.
     fn match_equality(&self, field: &str, term: &FilterTerm) -> bool {
         if term.regex {
             regex_matches(field, &term.value)
@@ -113,6 +124,7 @@ impl<'a> FilterContext<'a> {
         }
     }
 
+    /// Matches UID column value or a key in [`State::uids_map`].
     fn match_uid(&self, term: &FilterTerm) -> bool {
         if term.regex {
             regex_matches(&self.entry.uid, &term.value)
@@ -126,6 +138,7 @@ impl<'a> FilterContext<'a> {
         }
     }
 
+    /// Matches resolved package display name (substring or regex).
     fn match_package(&self, term: &FilterTerm) -> bool {
         if term.regex {
             let display = crate::resolve_entry_package(self.entry, self.state);
@@ -135,6 +148,7 @@ impl<'a> FilterContext<'a> {
         }
     }
 
+    /// Matches log tag (glob list or regex).
     fn match_tag(&self, term: &FilterTerm) -> bool {
         if term.regex {
             regex_matches(&self.entry.tag, &term.value)
@@ -143,6 +157,7 @@ impl<'a> FilterContext<'a> {
         }
     }
 
+    /// Requires entry level at or above the minimum named in the term value.
     fn match_level(&self, term: &FilterTerm) -> bool {
         let min_level = term
             .value
@@ -155,6 +170,7 @@ impl<'a> FilterContext<'a> {
             .unwrap_or(false)
     }
 
+    /// Case-insensitive substring or regex match on free text.
     fn match_text(&self, haystack: &str, term: &FilterTerm) -> bool {
         if term.regex {
             regex_matches(haystack, &term.value)
@@ -165,6 +181,7 @@ impl<'a> FilterContext<'a> {
         }
     }
 
+    /// Returns true when the entry timestamp is newer than `now - age`.
     fn match_age(&self, term: &FilterTerm) -> bool {
         let Some(max_age) = parse_age_duration(&term.value) else {
             return false;
@@ -174,6 +191,7 @@ impl<'a> FilterContext<'a> {
     }
 }
 
+/// Returns true when `pattern` compiles and matches `haystack` (invalid patterns never match).
 fn regex_matches(haystack: &str, pattern: &str) -> bool {
     match compile_regex(pattern) {
         Ok(re) => re.is_match(haystack),
@@ -181,7 +199,9 @@ fn regex_matches(haystack: &str, pattern: &str) -> bool {
     }
 }
 
+/// Compiles or clones a cached [`Regex`] for repeated filter evaluation.
 fn compile_regex(pattern: &str) -> Result<Regex, regex::Error> {
+    /// Process-wide cache of compiled filter regex patterns (keyed by pattern string).
     static CACHE: LazyLock<std::sync::Mutex<std::collections::HashMap<String, Regex>>> =
         LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
@@ -199,6 +219,10 @@ fn compile_regex(pattern: &str) -> Result<Regex, regex::Error> {
 }
 
 /// Parses Logcat-style age values such as `30s`, `5m`, `1h`, `2d`.
+///
+/// # Returns
+///
+/// `None` when the suffix or numeric portion is invalid.
 fn parse_age_duration(value: &str) -> Option<chrono::Duration> {
     let trimmed = value.trim();
     if trimmed.len() < 2 {

@@ -11,6 +11,9 @@
 // GNU General Public License for more details.
 
 //! Legacy CLI flags to query strings and `--query` conflict checks.
+//!
+//! When [`CliArgs::query`] is set, package/tag/regex/level/current filters must not also be
+//! passed on the command line; tag exclusions via `--ignore-tag` remain valid.
 
 #![deny(clippy::unwrap_used)]
 
@@ -21,6 +24,10 @@ use crate::LogLevel;
 use crate::controller::util::exit_with_error;
 
 /// Returns true when any legacy filter flag conflicts with `--query`.
+///
+/// # Arguments
+///
+/// * `args` — Parsed CLI arguments.
 pub fn legacy_filter_flags_active(args: &CliArgs) -> bool {
     args.tag.is_some()
         || args.regex.is_some()
@@ -30,6 +37,12 @@ pub fn legacy_filter_flags_active(args: &CliArgs) -> bool {
 }
 
 /// Exits the process when `--query` is combined with conflicting legacy filter flags.
+///
+/// # Arguments
+///
+/// * `args` — Parsed CLI arguments; no-op when `query` is unset.
+///
+/// Calls [`exit_with_error`] and terminates the process when a conflict is detected.
 pub fn validate_query_flag_conflicts(args: &CliArgs) {
     if args.query.is_none() {
         return;
@@ -48,6 +61,15 @@ pub fn validate_query_flag_conflicts(args: &CliArgs) {
 ///
 /// Package catch-alls become `package:` terms; tags, regex, and level follow the same shape as
 /// [`crate::controller::setup::seed_filter_input`], except regex uses `message~` form.
+///
+/// # Arguments
+///
+/// * `args` — Legacy tag, regex, and level flags.
+/// * `packages` — Resolved package names (main processes only; `:` suffixes are skipped).
+///
+/// # Returns
+///
+/// A single query string suitable for [`crate::parse_query`].
 pub fn compile_legacy_filter_query(args: &CliArgs, packages: &HashSet<String>) -> String {
     let mut parts = Vec::default();
 
