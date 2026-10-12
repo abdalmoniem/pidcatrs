@@ -50,6 +50,8 @@ mod display_cache;
 mod export;
 /// Path helpers and validation for the open/save file dialogs.
 mod file_source;
+/// Filter-token highlighting on rendered log lines.
+mod filter_highlight;
 /// Command palette / help catalog and its row model.
 mod help;
 /// Background log ingestion (live `adb logcat`, file and pipe sources).
