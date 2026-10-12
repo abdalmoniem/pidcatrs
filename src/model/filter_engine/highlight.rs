@@ -11,6 +11,9 @@
 // GNU General Public License for more details.
 
 //! Highlight rules derived from the user-visible filter query AST.
+//!
+//! Only non-negated terms except `level:` and `age:` produce [`FilterHighlightRule`] values for
+//! the TUI display cache. Implicit ignore-tag clauses are excluded.
 
 #![deny(clippy::unwrap_used)]
 
@@ -25,10 +28,15 @@ use super::parse::FilterQuery;
 use super::parse::FilterTerm;
 
 /// Returns true when `query` contains terms that can drive log-line token highlighting.
+///
+/// # Arguments
+///
+/// * `query` — User-visible parsed query (not implicit ignores).
 pub fn user_query_has_token_highlights(query: &FilterQuery) -> bool {
     query.root.as_ref().is_some_and(expr_has_token_highlights)
 }
 
+/// Returns true when any leaf under `expr` can produce a highlight rule.
 fn expr_has_token_highlights(expr: &FilterExpr) -> bool {
     match expr {
         FilterExpr::Term(term) => {
@@ -43,6 +51,15 @@ fn expr_has_token_highlights(expr: &FilterExpr) -> bool {
 }
 
 /// Collects highlight rules from `query` (user query only — no implicit ignores).
+///
+/// # Arguments
+///
+/// * `query` — Parsed user filter AST.
+/// * `entry` — Log line used to resolve tag substring needles.
+///
+/// # Returns
+///
+/// De-duplicated rules in discovery order.
 pub fn highlight_rules_for_user_query(
     query: &FilterQuery,
     entry: &LogEntry,
@@ -54,6 +71,7 @@ pub fn highlight_rules_for_user_query(
     dedupe_highlight_rules(rules)
 }
 
+/// Walks `expr` and appends highlight rules for matching leaf terms.
 fn collect_highlight_rules(
     expr: &FilterExpr,
     entry: &LogEntry,
@@ -78,6 +96,7 @@ fn collect_highlight_rules(
     }
 }
 
+/// Builds one highlight rule for `term`, or `None` when the needle would be empty.
 fn term_highlight_rule(term: &FilterTerm, entry: &LogEntry) -> Option<FilterHighlightRule> {
     let field = match term.key {
         FilterKey::Pid => FilterHighlightField::Pid,
@@ -122,6 +141,7 @@ fn term_highlight_rule(term: &FilterTerm, entry: &LogEntry) -> Option<FilterHigh
     })
 }
 
+/// Removes duplicate rules (same needle, field, case flag, and regex flag).
 fn dedupe_highlight_rules(rules: Vec<FilterHighlightRule>) -> Vec<FilterHighlightRule> {
     let mut unique: Vec<FilterHighlightRule> = Vec::default();
     'outer: for rule in rules {

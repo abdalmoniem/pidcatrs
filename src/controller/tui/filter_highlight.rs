@@ -437,13 +437,14 @@ fn split_line_by_marks(line: Line<'static>, marked: &[bool]) -> Line<'static> {
     Line::from(new_spans)
 }
 
-/// Finds every non-overlapping occurrence of `needle` in `haystack` by visible character index.
+/// Finds every match of a highlight rule in `haystack` by visible character index.
+///
+/// Dispatches to literal substring search or regex search according to [`FilterHighlightRule`].
 ///
 /// # Arguments
 ///
 /// * `haystack` - Text to search (Unicode scalar values; no normalization).
-/// * `needle` - Substring to find; empty needles yield no matches.
-/// * `case_insensitive` - When set, ASCII case folding is applied per character.
+/// * `rule` - Needle, match mode, and options from the active filter highlight set.
 ///
 /// # Returns
 ///
@@ -457,6 +458,16 @@ fn find_rule_match_ranges(haystack: &str, rule: &FilterHighlightRule) -> Vec<(us
     }
 }
 
+/// Finds every non-overlapping regex match in `haystack` by visible character index.
+///
+/// # Arguments
+///
+/// * `haystack` - Text to search.
+/// * `pattern` - Regex pattern; invalid patterns yield no matches.
+///
+/// # Returns
+///
+/// `(start, end)` character ranges for each match, in left-to-right order.
 fn find_regex_match_ranges(haystack: &str, pattern: &str) -> Vec<(usize, usize)> {
     let Ok(re) = Regex::new(pattern) else {
         return Vec::default();
@@ -470,6 +481,18 @@ fn find_regex_match_ranges(haystack: &str, pattern: &str) -> Vec<(usize, usize)>
         .collect()
 }
 
+/// Finds every non-overlapping occurrence of `needle` in `haystack` by visible character index.
+///
+/// # Arguments
+///
+/// * `haystack` - Text to search (Unicode scalar values; no normalization).
+/// * `needle` - Substring to find; empty needles yield no matches.
+/// * `case_insensitive` - When set, ASCII case folding is applied per character.
+///
+/// # Returns
+///
+/// `(start, end)` ranges with `start` inclusive and `end` exclusive, measured in character
+/// indices consistent with the rest of this module.
 fn find_match_ranges(haystack: &str, needle: &str, case_insensitive: bool) -> Vec<(usize, usize)> {
     if needle.is_empty() {
         return Vec::default();

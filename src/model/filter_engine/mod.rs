@@ -12,8 +12,19 @@
 
 //! Logcat-style filter query parsing and evaluation for plain mode and the TUI.
 //!
-//! User-visible query text is parsed into an AST, optionally combined with implicit constraints
-//! (such as [`CliArgs::ignore_tag`]), and evaluated against [`LogEntry`] values.
+//! User-visible query text (`--query`, the TUI filter bar) is parsed into an AST ([`FilterQuery`]),
+//! optionally combined with implicit constraints from the CLI (such as [`CliArgs::ignore_tag`]),
+//! and evaluated against [`LogEntry`] values through [`EffectiveFilter`].
+//!
+//! # Query syntax (summary)
+//!
+//! - **Key predicates** — `tag:Main`, `message~Error.*`, bare words as implicit `message:` terms.
+//! - **Boolean logic** — whitespace is AND; `|` is OR; parentheses group; `-` negates a term or group.
+//! - **Special keys** — `level:warn`, `age:5m` (duration suffix `s`/`m`/`h`/`d`).
+//!
+//! Legacy CLI filter flags compile to the same syntax via [`compile_legacy_filter_query`].
+//! Highlight rules for the TUI log table are derived from the user-visible AST only
+//! ([`highlight_rules_for_user_query`]).
 
 #![deny(clippy::unwrap_used)]
 
@@ -41,6 +52,15 @@ use std::collections::HashSet;
 use crate::CliArgs;
 
 /// User-visible filter text at startup (`--query` or legacy flags compiled to a query).
+///
+/// # Arguments
+///
+/// * `args` — CLI configuration; when [`CliArgs::query`] is set it is returned verbatim.
+/// * `packages` — Resolved package set used when compiling legacy package filters.
+///
+/// # Returns
+///
+/// The query string shown in the TUI filter bar and parsed by [`EffectiveFilter::from_user_source`].
 pub fn startup_user_filter_source(args: &CliArgs, packages: &HashSet<String>) -> String {
     if let Some(query) = &args.query {
         return query.clone();
@@ -49,6 +69,11 @@ pub fn startup_user_filter_source(args: &CliArgs, packages: &HashSet<String>) ->
 }
 
 /// Builds the session [`EffectiveFilter`] from CLI args and resolved packages.
+///
+/// # Arguments
+///
+/// * `args` — CLI configuration (implicit `ignore_tag` patterns, layout for evaluation).
+/// * `packages` — Resolved packages for legacy query compilation when `--query` is unset.
 ///
 /// # Errors
 ///

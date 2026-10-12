@@ -60,8 +60,7 @@ pub struct BundledTheme {
     pub source: &'static str,
 }
 
-/// generated at build time from `themes/*.toml`
-/// contains all the theme names and their paths
+/// Generated at build time from `themes/*.toml`, contains all the theme names and their paths
 pub const BUNDLED_THEMES: &[BundledTheme] = get_bundled_themes!("src/config/themes");
 
 /// Lazily initialized active theme after [`set_active`].

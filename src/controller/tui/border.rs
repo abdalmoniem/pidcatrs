@@ -164,6 +164,14 @@ pub fn build_simple_bottom_border(width: usize) -> String {
 }
 
 /// Builds a plain top border without a label notch (`╭──────╮`).
+///
+/// # Arguments
+///
+/// * `width` — Total border width in characters.
+///
+/// # Returns
+///
+/// The border line, or a run of `─` when `width < 2`.
 pub fn build_simple_top_border(width: usize) -> String {
     if width < 2 {
         return "─".repeat(width);
@@ -417,6 +425,15 @@ fn render_panel_frame(
 /// Draws a rounded accent border (same corners as dialogs) and returns the inner area.
 ///
 /// Used for floating popups such as the filter key autocomplete menu.
+///
+/// # Arguments
+///
+/// * `frame` — Frame to draw on.
+/// * `area` — Outer rectangle including the border.
+///
+/// # Returns
+///
+/// Inner content rectangle inset by one column and row on each side.
 pub fn render_accent_popup_frame(frame: &mut Frame, area: Rect) -> Rect {
     let width = area.width as usize;
     render_panel_frame(

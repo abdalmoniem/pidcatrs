@@ -20,7 +20,7 @@ A fork of [PidCat](https://github.com/JakeWharton/pidcat) re-written entirely in
 
 [PidCat](https://github.com/JakeWharton/pidcat) was originally created by Jake Wharton for the Android Open Source Project. **pidcatrs** extends that idea with a full-screen terminal UI, documented TOML configuration and color themes, multiple adb log formats (including multiline `long` output), timestamps, and the same package/tag filtering workflow you expect from classic pidcat—plus plain streaming mode when stdout is not a TTY or when you pass `--plain`.
 
-pidcatrs filters logcat output by application package name, colorizes logs for readability, and offers CLI flags and an in-TUI filter bar so you can focus on the lines that matter.
+pidcatrs filters logcat output by application package name, colorizes logs for readability, and uses one **Logcat-style filter query** everywhere: the `-Q` / `--query` flag, the TUI filter bar, and (when no query is set) legacy `-t` / `-r` / `-l` / package flags compiled into the same syntax. Matching terms can **highlight** corresponding text in the log table while you filter.
 
 ---
 
@@ -61,13 +61,27 @@ pidcatrs filters logcat output by application package name, colorizes logs for r
 
 - ## Core filtering
 
+  - **Unified filter engine** — Plain mode and the TUI share the same parser and evaluator (`tag:`, `pid:`, `uid:`, `package:`, `level:`, `message`, `age:`). Process start/death banners follow the same rules where applicable.
+  - **Logcat-style query** — `-Q` / `--query` for startup filtering; press **`/`** in the TUI to edit the same expression live. Syntax: whitespace = **AND**, `|` = **OR**, `-` = **NOT**, parentheses for grouping, `"quoted"` message literals, `key:value` equality, `key~regex` on supported fields.
+  - **Legacy CLI → query** — When `--query` is omitted, `-t`, `-r`, `-l`, and resolved package names are compiled into an equivalent query for the filter bar and plain output. **`--query` cannot be combined** with `-t`, `-r`, `-l`, positional packages, or `--current` (use `-i` / `-I` for tag exclusions either way).
   - **Package filtering** — One or more package names; process suffixes (`com.app:remote`, `com.app:`) supported.
-  - **Tag filtering** — Substring matching by default; regex when you use regex syntax in patterns.
-  - **Ignore tags** — `-i` / config `ignore_tags`; optional **ignore known system tags** (`-I`).
-  - **Log level** — Minimum level `-l` / `level:` in the TUI filter bar.
-  - **Message regex** — `-r` for line-body filtering.
+  - **Tag filtering** — Substring matching by default; regex via `tag~pattern` or legacy regex tag patterns on `-t`.
+  - **Ignore tags** — `-i` / config `ignore-tag`; optional **ignore known system tags** (`-I`); merged as implicit `-tag:…` clauses (not shown in the filter bar).
+  - **Log level** — Minimum level `-l` or `level:info` (comma-separated names take the lowest specified level).
+  - **Message regex** — `-r` or `message~pattern` in a query.
+  - **Age window** — `age:30s`, `age:5m`, `age:1h`, `age:2d` keep entries newer than the duration (evaluation uses local wall clock).
+  - **Live filter (TUI)** — `-L` / `--live-filter` / config `live-filter` (default `true`): re-apply the filter bar on each edit; `--live-filter=false` applies only on **Enter** (invalid text while typing keeps the last good filter and shows an error in the status bar).
+  - **Token highlights** — Non-negated query terms (except `level:` / `age:`) highlight matching PID, UID, package, tag, and message text in the log view, including matches across wrapped message lines.
   - **Current app** — `--current` resolves foreground package(s) via adb.
   - **Process tracking** — Start/death notifications for filtered processes.
+
+- ## TUI filter bar
+
+  - **Multiline input** — Soft-wraps while focused; collapses to one line with an ellipsis when unfocused.
+  - **Syntax coloring** — Filter key names and `:` / `~` operators use the theme accent color.
+  - **Key autocomplete** — **Ctrl+Space** (or typing a key prefix) opens a popup at the cursor with `key:` / `key~` rows; **Tab** or **Enter** inserts the selection; **↑** / **↓** move the list.
+  - **Editing shortcuts** — **Ctrl+L** clear; **Ctrl+←** / **Ctrl+→** word motion; **Ctrl+W** / **Ctrl+Del** delete previous/next word.
+  - **Export / copy** — **Ctrl+s** export and filtered views respect the effective query (user text plus implicit ignore tags).
 
 - ## Formatting and adb
 
@@ -178,6 +192,15 @@ pidcatrs com.example.app -r "Exception|FATAL"
 
 # Regex tag patterns
 pidcatrs com.example.app -t "^Network.*"
+
+# Single Logcat-style query (replaces -t / -r / -l / packages for filtering)
+pidcatrs -Q 'tag:OkHttp | tag:Retrofit level:debug Exception'
+
+# Plain mode with the same query
+pidcatrs --plain -Q 'message~NullPointer age:10m' com.example.app
+
+# TUI: apply filter only when you press Enter
+pidcatrs -L false com.example.app
 ```
 
 - ## Command line options
@@ -211,6 +234,8 @@ pidcatrs com.example.app -t "^Network.*"
   | `-i`, `--ignore-tag TAG` | Exclude tag(s); repeat or comma-separated |
   | `-l`, `--log-level LEVEL` | Minimum level: `V` `D` `I` `W` `E` `F` (case insensitive) |
   | `-r`, `--regex REGEX` | Filter log message body |
+  | `-Q`, `--query QUERY` | Logcat-style filter query (cannot mix with `-t`, `-r`, `-l`, packages, or `--current`) |
+  | `-L`, `--live-filter BOOL` | TUI: apply filter while typing (default `true`; `false` = apply on Enter only) |
 
   **Formatting**
 
@@ -296,20 +321,30 @@ Press **`?`** anytime to open the **command palette** (searchable list of shortc
   | Keys | Action |
   | --- | --- |
   | `/` | Focus filter input |
-  | `Enter` | Apply filter |
-  | `←` / `→`, `Home` / `End` | Edit filter text |
-  | `Backspace` / `Delete` | Edit filter text |
+  | `Enter` | Apply filter and leave the bar (live updates while typing unless `--live-filter=false`) |
+  | `Esc` | Close autocomplete, or exit the bar |
+  | `←` / `→`, `Home` / `End` | Move cursor in filter text |
+  | `Backspace` / `Delete` | Edit filter text (bar expands while focused) |
+  | `Ctrl+Space` | Open or refresh key autocomplete at the cursor |
+  | `Tab` / `↑` / `↓` / `Enter` | Choose a completion from the popup |
+  | `Ctrl+L` | Clear the filter bar |
+  | `Ctrl+←` / `Ctrl+→` | Move cursor by word |
+  | `Ctrl+W` / `Ctrl+Del` | Delete previous / next word |
 
-  **Filter syntax** (combine terms; message words match log text):
+  **Filter syntax** (same as `-Q` / `--query`; space = AND):
 
   | Syntax | Meaning |
   | --- | --- |
-  | `package:com.example.app` | Filter by package (multiple allowed) |
-  | `tag:MyTag` | Filter by tag |
+  | `package:com.example.app` | Filter by package (multiple terms = AND) |
+  | `tag:MyTag` | Tag substring (or `tag~regex`) |
   | `level:debug` | Minimum level (`verbose`, `debug`, `info`, …) |
-  | `pid:1234` | Filter by PID |
-  | `uid:10001` | Filter by UID |
-  | `search terms` | Match message text |
+  | `pid:1234` | PID match (`pid~` for regex) |
+  | `uid:10001` | UID match |
+  | `message~Error.*` | Regex on message body |
+  | `word` / `"phrase"` | Message substring (implicit `message:`) |
+  | `(a \| b)` | OR (use parentheses to group) |
+  | `-tag:Noise` | NOT (leading `-` on a term) |
+  | `age:5m` | Entries newer than duration (`s` / `m` / `h` / `d`) |
 
 - ## Device picker
 
@@ -446,6 +481,33 @@ Generate zsh completions (adjust path for your setup).
 
 </details>
 
+<details>
+
+<summary>Example 9: Logcat-style query on the CLI</summary>
+
+```bash
+pidcatrs -Q '(tag:OkHttp | tag:Retrofit) level:info -tag:Spam message~timeout'
+```
+
+One query replaces separate `-t`, `-l`, and `-r` flags. Tag ignore lists from `-i` still apply invisibly.
+
+</details>
+
+<details>
+
+<summary>Example 10: Live filter and config</summary>
+
+```bash
+# config.toml (Filtering options)
+live-filter = false
+
+pidcatrs com.example.app
+```
+
+In the TUI, edit the filter bar with **/**; changes apply only when you press **Enter**. Default is live filtering on every keystroke (`live-filter = true` or omit the key).
+
+</details>
+
 ---
 
 # 🔨 Building from source
@@ -489,6 +551,16 @@ Generate zsh completions (adjust path for your setup).
   - **Schemas**: [`schemas/config.schema.json`](schemas/config.schema.json), [`schemas/theme.schema.json`](schemas/theme.schema.json) for editor validation.
 
   On first run, if no config exists, pidcatrs can write a default file from built-in defaults. Use `--print-config` to dump the effective settings as a documented template.
+
+  **`live-filter`** (boolean, default `true`) lives under **Filtering options** in the generated template. **`--query`** is CLI-only today (not a config key); put a default query in a shell alias or wrapper if you need one.
+
+- ## Query vs legacy flags
+
+  | Approach | When to use |
+  | --- | --- |
+  | `-Q '…'` | Single expressive filter; required if you already use query syntax in Logcat Studio or adb search. |
+  | `-t` / `-r` / `-l` / packages | Classic pidcat-style flags; compiled to a query for display and filtering when `-Q` is unset. |
+  | `-i` / `-I` | Always allowed; exclusions are not shown in the filter bar but still apply. |
 
 - ## Tag filtering behavior
 
