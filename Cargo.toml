@@ -16,8 +16,8 @@ categories = ["parsing", "development-tools", "command-line-interface", "command
 [workspace]
 members = [
   ".",
-  "build/xshell",
   "build/xtask",
+  "build/xshell",
 ]
 
 [dependencies]
@@ -28,6 +28,7 @@ ratatui = "0.30.2"
 futures = "0.3.31"
 etcetera = "0.11.0"
 itertools = "0.14.0"
+thiserror = "2.0.21"
 lazy_static = "1.5.0"
 is-terminal = "0.4.17"
 terminal_size = "0.4.3"

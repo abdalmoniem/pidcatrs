@@ -14,7 +14,7 @@
 
 #![deny(clippy::unwrap_used)]
 
-use std::fmt;
+use thiserror::Error;
 
 /// Supported filter field keys (Logcat key-value search subset).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -137,21 +137,14 @@ pub struct FilterQuery {
 }
 
 /// Parse failure with a human-readable message and source location.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Error)]
+#[error("{message} (at character {char_index})")]
 pub struct ParseError {
     /// One-line description of the problem.
     pub message: String,
     /// Character index into the source where the error was detected (0-based).
     pub char_index: usize,
 }
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} (at character {})", self.message, self.char_index)
-    }
-}
-
-impl std::error::Error for ParseError {}
 
 /// Parses `input` into a [`FilterQuery`].
 ///
