@@ -48,9 +48,9 @@ use tokio::task::JoinHandle as TokioJoinHandle;
 use crate::CliArgs;
 use crate::LogEntry;
 use crate::State;
-use crate::TuiFilterSet;
 use crate::ValueOrPanic;
 use crate::build_logcat_command;
+use crate::model::filter_engine::EffectiveFilter;
 use crate::open_output_writer;
 use crate::process_log_input;
 use crate::render_entry;
@@ -169,7 +169,7 @@ struct IngestContext {
     /// Parser state (PID/UID maps, last tag, ...), advanced for every line.
     state: State,
     /// Filter shared with the UI; read to decide whether an entry matches.
-    filters: Arc<RwLock<TuiFilterSet>>,
+    filters: Arc<RwLock<EffectiveFilter>>,
     /// Channel to the output-file writer, when `--output` is configured.
     file_tx: Option<tokio_mpsc::UnboundedSender<LogEntry>>,
     /// Channel delivering parsed entries to the UI.
@@ -200,7 +200,7 @@ impl IngestContext {
                 .filters
                 .read()
                 .unwrap_or_panic("filter lock poisoned")
-                .matches(&entry, &self.state);
+                .matches(&entry, &self.state, chrono::Local::now(), &self.args);
 
             if matches_filter && let Some(file_tx) = &self.file_tx {
                 let _ = file_tx.send(entry.clone());
@@ -332,7 +332,7 @@ struct IngestTask {
     /// Device serial for [`SourceMode::Live`].
     device_serial: Option<String>,
     /// Filter shared with the UI.
-    filters: Arc<RwLock<TuiFilterSet>>,
+    filters: Arc<RwLock<EffectiveFilter>>,
     /// Channel to the output-file writer, when configured.
     file_tx: Option<tokio_mpsc::UnboundedSender<LogEntry>>,
     /// Channel delivering parsed entries to the UI.
@@ -457,7 +457,7 @@ impl LogIngest {
         args: CliArgs,
         state: State,
         device_serial: Option<String>,
-        filters: Arc<RwLock<TuiFilterSet>>,
+        filters: Arc<RwLock<EffectiveFilter>>,
     ) -> (Self, tokio_mpsc::UnboundedReceiver<IngestUpdate>) {
         let (update_tx, update_rx) = tokio_mpsc::unbounded_channel();
         let stop = Arc::new(AtomicBool::new(false));

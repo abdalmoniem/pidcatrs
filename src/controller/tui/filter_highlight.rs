@@ -32,13 +32,15 @@ use ratatui::style::Color;
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::text::Span;
+use regex::Regex;
 
 use crate::CliArgs;
 use crate::LogEntry;
 use crate::LogEntryKind;
 use crate::State;
-use crate::TuiFilterSet;
 use crate::controller::log_processor::log_line_column_ranges_for_entry;
+use crate::model::filter_engine::FilterQuery;
+use crate::model::filter_engine::highlight_rules_for_user_query;
 use crate::model::tui_filter::FilterHighlightField;
 use crate::model::tui_filter::FilterHighlightRule;
 
@@ -135,7 +137,7 @@ impl WrappedMessageLayout {
 ///
 /// # Arguments
 ///
-/// * `filters` - Active TUI filters; drives which needles and columns are considered.
+/// * `user_query` - User-visible filter query; drives which needles and columns are considered.
 /// * `entry` - The log entry being rendered on this row.
 /// * `args` - CLI layout options (column widths, timestamps, etc.).
 /// * `state` - Render state (package maps, tag de-duplication layout).
@@ -149,7 +151,7 @@ impl WrappedMessageLayout {
 /// Scoped rules for `line_index`. Empty when there are no rules, the row is empty, or no needles
 /// match on this row.
 pub fn entry_line_highlight_scopes(
-    filters: &TuiFilterSet,
+    user_query: &FilterQuery,
     entry: &LogEntry,
     args: &CliArgs,
     state: &State,
@@ -158,7 +160,7 @@ pub fn entry_line_highlight_scopes(
     message_layout: Option<&WrappedMessageLayout>,
 ) -> Vec<(FilterHighlightRule, Range<usize>)> {
     let line_char_len = plain_line.chars().count();
-    let rules = filters.highlight_rules(entry);
+    let rules = highlight_rules_for_user_query(user_query, entry);
     if rules.is_empty() || line_char_len == 0usize {
         return Vec::default();
     }
@@ -294,7 +296,7 @@ fn push_column_scope(
     }
 
     let haystack: String = plain_chars[col_start..col_end].iter().collect();
-    for (rel_start, rel_end) in find_match_ranges(&haystack, &rule.needle, rule.case_insensitive) {
+    for (rel_start, rel_end) in find_rule_match_ranges(&haystack, rule) {
         scoped.push((rule.clone(), col_start + rel_start..col_start + rel_end));
     }
 }
@@ -324,9 +326,7 @@ fn push_wrapped_message_scopes(
     let seg_end = row.global_range.end;
     let message_field = &row.message_field;
 
-    for (match_start, match_end) in
-        find_match_ranges(&layout.plain_message, &rule.needle, rule.case_insensitive)
-    {
+    for (match_start, match_end) in find_rule_match_ranges(&layout.plain_message, rule) {
         let overlap_start = match_start.max(seg_start);
         let overlap_end = match_end.min(seg_end);
         if overlap_start >= overlap_end {
@@ -449,6 +449,27 @@ fn split_line_by_marks(line: Line<'static>, marked: &[bool]) -> Line<'static> {
 ///
 /// `(start, end)` ranges with `start` inclusive and `end` exclusive, measured in character
 /// indices consistent with the rest of this module.
+fn find_rule_match_ranges(haystack: &str, rule: &FilterHighlightRule) -> Vec<(usize, usize)> {
+    if rule.regex {
+        find_regex_match_ranges(haystack, &rule.needle)
+    } else {
+        find_match_ranges(haystack, &rule.needle, rule.case_insensitive)
+    }
+}
+
+fn find_regex_match_ranges(haystack: &str, pattern: &str) -> Vec<(usize, usize)> {
+    let Ok(re) = Regex::new(pattern) else {
+        return Vec::default();
+    };
+    re.find_iter(haystack)
+        .map(|mat| {
+            let start = haystack[..mat.start()].chars().count();
+            let end = haystack[..mat.end()].chars().count();
+            (start, end)
+        })
+        .collect()
+}
+
 fn find_match_ranges(haystack: &str, needle: &str, case_insensitive: bool) -> Vec<(usize, usize)> {
     if needle.is_empty() {
         return Vec::default();

@@ -41,7 +41,10 @@ use crate::controller::setup::bootstrap_adb_plain;
 use crate::controller::setup::build_state;
 use crate::controller::setup::normalize_cli_args;
 use crate::controller::setup::resolve_packages;
+use crate::exit_with_error;
 use crate::flush_long_log_entry;
+use crate::model::filter_engine::build_startup_effective_filter;
+use crate::model::filter_engine::validate_query_flag_conflicts;
 use crate::open_output_writer;
 use crate::spawn_logcat;
 use crate::trim_log_line_bytes;
@@ -91,6 +94,7 @@ pub fn run_plain(args: &mut CliArgs) {
     let show_colors = !args.no_color;
 
     normalize_cli_args(args);
+    validate_query_flag_conflicts(args);
 
     let stdin = stdin();
     let adb_command = build_logcat_command(args, None);
@@ -99,6 +103,9 @@ pub fn run_plain(args: &mut CliArgs) {
     let writers = &mut vec![stdout_writer];
 
     let (packages, catchall_packages, named_processes) = resolve_packages(args, None);
+
+    let effective_filter = build_startup_effective_filter(args, &packages)
+        .unwrap_or_else(|err| exit_with_error(&err.to_string(), show_colors));
 
     if let Some(path) = args.output_path.clone() {
         writers.push(open_output_writer(&path));
@@ -225,7 +232,7 @@ pub fn run_plain(args: &mut CliArgs) {
             .iter_mut()
             .filter(|writer| writer.width.is_some())
             .for_each(|writer| writer.width = Some(get_console_width()));
-        write_log_line(&line, &mut state, args, writers);
+        write_log_line(&line, &mut state, args, writers, &effective_filter);
     }
 
     flush_long_log_entry(&mut state, args, writers);

@@ -28,6 +28,8 @@ pub mod ansi_segment;
 pub mod cli_args;
 /// Log-line filtering helpers (package, tag, level, ownership).
 pub mod filter;
+/// Logcat-style filter query parse and evaluation.
+pub mod filter_engine;
 /// Parsed Android log record and lifecycle banner kinds.
 pub mod log_entry;
 /// Regex-based log line layout configuration.

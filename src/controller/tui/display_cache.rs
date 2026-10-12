@@ -37,11 +37,12 @@ use crate::CliArgs;
 use crate::LogEntry;
 use crate::LogEntryKind;
 use crate::State;
-use crate::TuiFilterSet;
 use crate::controller::log_processor::format_log_message;
 use crate::controller::log_processor::message_fields_for_rendered_plain_lines;
 use crate::controller::log_processor::message_header_width_from_plain_first_line;
 use crate::controller::log_processor::normal_entry_header_width;
+use crate::model::filter_engine::FilterQuery;
+use crate::model::filter_engine::user_query_has_token_highlights;
 use crate::render_entry_lines;
 
 use super::filter_highlight::WrappedMessageLayout;
@@ -200,7 +201,7 @@ impl DisplayCache {
         width: i16,
         filter_generation: u64,
         budget: usize,
-        tui_filters: &TuiFilterSet,
+        user_query: &FilterQuery,
     ) {
         let no_color = args.no_color;
 
@@ -208,10 +209,10 @@ impl DisplayCache {
             self.start_rebuild(ingest_state, width, no_color, filter_generation);
         }
 
-        let highlight_needles = if no_color || !tui_filters.has_token_highlights() {
+        let highlight_needles = if no_color || !user_query_has_token_highlights(user_query) {
             None
         } else {
-            Some(tui_filters)
+            Some(user_query)
         };
 
         if budget == 0 || self.rendered_filtered_count >= filtered_indices.len() {
@@ -307,7 +308,7 @@ struct AppendEntryContext<'a> {
     /// Whether to skip ANSI parsing and emit unstyled text.
     no_color: bool,
     /// Applied filters for token highlighting, when coloring is enabled.
-    highlight_needles: Option<&'a TuiFilterSet>,
+    highlight_needles: Option<&'a FilterQuery>,
 }
 
 /// Renders one entry and appends its lines to the cache vectors.
@@ -363,9 +364,9 @@ fn append_entry(
             Line::from(text)
         } else {
             let parsed = line_from_ansi(&text);
-            if let Some(filters) = highlight_filters {
+            if let Some(user_query) = highlight_filters {
                 let scopes = entry_line_highlight_scopes(
-                    filters,
+                    user_query,
                     ctx.entry,
                     ctx.args,
                     ctx.render_state,

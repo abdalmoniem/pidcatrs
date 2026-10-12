@@ -182,6 +182,10 @@ pub fn build_state(
 /// 3. the configured filter regex, verbatim;
 /// 4. `level:<name>` when the log level is anything other than verbose.
 pub fn seed_filter_input(args: &CliArgs, packages: &HashSet<String>) -> String {
+    if let Some(query) = &args.query {
+        return query.clone();
+    }
+
     let mut parts = Vec::default();
 
     let mut packages: Vec<&String> = packages
