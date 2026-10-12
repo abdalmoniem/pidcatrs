@@ -263,6 +263,85 @@ fn char_index_to_byte(text: &str, char_index: usize) -> usize {
         .unwrap_or(text.len())
 }
 
+fn filter_chars(input: &str) -> Vec<char> {
+    input.chars().collect()
+}
+
+/// Cursor position after moving one word left (words are non-whitespace runs).
+pub fn filter_cursor_word_left(input: &str, cursor: usize) -> usize {
+    let chars = filter_chars(input);
+    let len = chars.len();
+    let mut pos = cursor.min(len);
+    while pos > 0 && chars[pos - 1].is_whitespace() {
+        pos -= 1;
+    }
+    while pos > 0 && !chars[pos - 1].is_whitespace() {
+        pos -= 1;
+    }
+    pos
+}
+
+/// Cursor position after moving one word right.
+pub fn filter_cursor_word_right(input: &str, cursor: usize) -> usize {
+    let chars = filter_chars(input);
+    let len = chars.len();
+    let mut pos = cursor.min(len);
+    while pos < len && !chars[pos].is_whitespace() {
+        pos += 1;
+    }
+    while pos < len && chars[pos].is_whitespace() {
+        pos += 1;
+    }
+    pos
+}
+
+/// Deletes the word before `cursor`; returns the new cursor index.
+pub fn filter_delete_word_before(input: &mut String, cursor: usize) -> usize {
+    if cursor == 0 {
+        return 0;
+    }
+    let start = {
+        let chars = filter_chars(input);
+        let mut pos = cursor.min(chars.len());
+        while pos > 0 && chars[pos - 1].is_whitespace() {
+            pos -= 1;
+        }
+        while pos > 0 && !chars[pos - 1].is_whitespace() {
+            pos -= 1;
+        }
+        pos
+    };
+    let byte_start = char_index_to_byte(input, start);
+    let byte_end = char_index_to_byte(input, cursor);
+    input.replace_range(byte_start..byte_end, "");
+    start
+}
+
+/// Deletes the word after `cursor`; returns the new cursor index.
+pub fn filter_delete_word_after(input: &mut String, cursor: usize) -> usize {
+    let end = {
+        let chars = filter_chars(input);
+        let len = chars.len();
+        let mut pos = cursor.min(len);
+        if pos < len && chars[pos].is_whitespace() {
+            while pos < len && chars[pos].is_whitespace() {
+                pos += 1;
+            }
+        }
+        while pos < len && !chars[pos].is_whitespace() {
+            pos += 1;
+        }
+        pos
+    };
+    if end <= cursor {
+        return cursor;
+    }
+    let byte_start = char_index_to_byte(input, cursor);
+    let byte_end = char_index_to_byte(input, end);
+    input.replace_range(byte_start..byte_end, "");
+    cursor
+}
+
 /// Returns `key:` and (when supported) `key~` suggestions matching `prefix`.
 pub fn matching_filter_suggestions(prefix: &str) -> Vec<(FilterKey, bool)> {
     FilterKey::autocomplete_keys()

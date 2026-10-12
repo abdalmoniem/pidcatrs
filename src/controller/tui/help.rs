@@ -211,6 +211,24 @@ pub const HELP_CATALOG: &[HelpEntry] = &[
     },
     HelpEntry {
         section: "filter bar",
+        keys: "ctrl+l",
+        description: "clear the filter bar",
+        action: None,
+    },
+    HelpEntry {
+        section: "filter bar",
+        keys: "ctrl+← / ctrl+→",
+        description: "move cursor by word",
+        action: None,
+    },
+    HelpEntry {
+        section: "filter bar",
+        keys: "ctrl+w / ctrl+del",
+        description: "delete previous or next word",
+        action: None,
+    },
+    HelpEntry {
+        section: "filter bar",
         keys: "ctrl+space",
         description: "show or refresh filter key completions (also updates while typing keys)",
         action: None,

@@ -96,6 +96,10 @@ use super::file_source::directory_input;
 use super::file_source::expand_path;
 use super::file_source::split_path_input;
 use super::file_source::validate_log_file;
+use super::filter_input::filter_cursor_word_left;
+use super::filter_input::filter_cursor_word_right;
+use super::filter_input::filter_delete_word_after;
+use super::filter_input::filter_delete_word_before;
 use super::help::HelpAction;
 use super::help::HelpRow;
 use super::help::build_help_rows;
@@ -1195,10 +1199,41 @@ impl TuiApp {
     ///
     /// * `key` - The pressed key.
     fn handle_filter_key(&mut self, key: KeyCode, modifiers: KeyModifiers) {
-        if key == KeyCode::Char(' ') && modifiers.contains(KeyModifiers::CONTROL) {
-            self.filter_autocomplete
-                .refresh_at_cursor(&self.filter_input, self.filter_cursor);
-            return;
+        if modifiers.contains(KeyModifiers::CONTROL) {
+            match key {
+                KeyCode::Char(' ') => {
+                    self.filter_autocomplete
+                        .refresh_at_cursor(&self.filter_input, self.filter_cursor);
+                    return;
+                }
+                KeyCode::Char('l') | KeyCode::Char('L') => {
+                    self.clear_filter_bar();
+                    return;
+                }
+                KeyCode::Char('w') | KeyCode::Char('W') => {
+                    self.filter_cursor =
+                        filter_delete_word_before(&mut self.filter_input, self.filter_cursor);
+                    self.after_filter_text_edit();
+                    return;
+                }
+                KeyCode::Left => {
+                    self.filter_cursor =
+                        filter_cursor_word_left(&self.filter_input, self.filter_cursor);
+                    return;
+                }
+                KeyCode::Right => {
+                    self.filter_cursor =
+                        filter_cursor_word_right(&self.filter_input, self.filter_cursor);
+                    return;
+                }
+                KeyCode::Delete => {
+                    self.filter_cursor =
+                        filter_delete_word_after(&mut self.filter_input, self.filter_cursor);
+                    self.after_filter_text_edit();
+                    return;
+                }
+                _ => {}
+            }
         }
 
         match key {
@@ -1225,28 +1260,35 @@ impl TuiApp {
             KeyCode::Down => self.filter_autocomplete.move_selection(1),
             KeyCode::Backspace => {
                 self.delete_filter_char_before_cursor();
-                self.filter_autocomplete
-                    .refresh_at_cursor(&self.filter_input, self.filter_cursor);
-                self.live_apply_filter();
+                self.after_filter_text_edit();
             }
             KeyCode::Delete => {
                 self.delete_filter_char_at_cursor();
-                self.filter_autocomplete
-                    .refresh_at_cursor(&self.filter_input, self.filter_cursor);
-                self.live_apply_filter();
+                self.after_filter_text_edit();
             }
             KeyCode::Left => self.move_filter_cursor_left(),
             KeyCode::Right => self.move_filter_cursor_right(),
             KeyCode::Home => self.filter_cursor = 0,
             KeyCode::End => self.filter_cursor = self.filter_input.chars().count(),
-            KeyCode::Char(ch) => {
+            KeyCode::Char(ch) if !modifiers.contains(KeyModifiers::CONTROL) => {
                 self.insert_filter_char(ch);
-                self.filter_autocomplete
-                    .refresh_at_cursor(&self.filter_input, self.filter_cursor);
-                self.live_apply_filter();
+                self.after_filter_text_edit();
             }
             _ => {}
         }
+    }
+
+    fn clear_filter_bar(&mut self) {
+        self.filter_input.clear();
+        self.filter_cursor = 0;
+        self.filter_autocomplete = FilterAutocomplete::default();
+        self.live_apply_filter();
+    }
+
+    fn after_filter_text_edit(&mut self) {
+        self.filter_autocomplete
+            .refresh_at_cursor(&self.filter_input, self.filter_cursor);
+        self.live_apply_filter();
     }
 
     fn accept_filter_autocomplete(&mut self) {
@@ -1264,9 +1306,7 @@ impl TuiApp {
             .replace_range(byte_start..byte_cursor, &replacement);
         self.filter_cursor =
             self.filter_input[..byte_start].chars().count() + replacement.chars().count();
-        self.filter_autocomplete
-            .refresh_at_cursor(&self.filter_input, self.filter_cursor);
-        self.live_apply_filter();
+        self.after_filter_text_edit();
     }
 
     /// Inserts `ch` into the filter input at the cursor.
