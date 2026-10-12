@@ -1462,6 +1462,7 @@ dependencies = [
  "terminal-clipboard",
  "terminal_size",
  "theme-macros",
+ "thiserror 2.0.21",
  "tokio",
  "toml",
  "tui-file-explorer",
