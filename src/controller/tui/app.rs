@@ -53,7 +53,6 @@ use crate::AdbDevice;
 use crate::CliArgs;
 use crate::LogEntry;
 use crate::State;
-use crate::TuiFilterSet;
 use crate::ValueOrPanic;
 use crate::build_adb_command;
 use crate::controller::terminal::register_tui_color_override;
@@ -61,6 +60,7 @@ use crate::controller::terminal::register_tui_mouse_capture;
 use crate::controller::terminal::register_tui_terminal;
 use crate::controller::terminal::restore_tui_terminal;
 use crate::get_adb_devices;
+use crate::model::filter_engine::EffectiveFilter;
 use crate::resolve_initial_device;
 use crate::set_running;
 
@@ -72,6 +72,10 @@ use crate::controller::setup::normalize_cli_args;
 use crate::controller::setup::refresh_process_maps;
 use crate::controller::setup::resolve_packages;
 use crate::controller::setup::seed_filter_input;
+use crate::controller::tui::filter_autocomplete::FilterAutocomplete;
+use crate::exit_with_error;
+use crate::model::filter_engine::build_startup_effective_filter;
+use crate::model::filter_engine::validate_query_flag_conflicts;
 
 use super::copy::CopyAction;
 use super::copy::available_copy_options;
@@ -177,10 +181,16 @@ pub struct TuiApp {
     pub filter_cursor: usize,
     /// Whether the filter input has keyboard focus.
     pub filter_focused: bool,
-    /// The parsed, applied filter.
-    pub tui_filters: TuiFilterSet,
+    /// Parsed user query combined with implicit tag exclusions.
+    pub effective_filter: EffectiveFilter,
     /// Copy of the applied filter shared with the ingest task.
-    filters_shared: Arc<RwLock<TuiFilterSet>>,
+    filters_shared: Arc<RwLock<EffectiveFilter>>,
+    /// Height of the filter panel (border + content).
+    pub filter_bar_height: u16,
+    /// Inline key autocomplete state while the filter field is focused.
+    pub filter_autocomplete: FilterAutocomplete,
+    /// Filter inner area and cursor pixel position (set each frame while the filter is focused).
+    pub(crate) filter_autocomplete_layout: FilterAutocompleteLayout,
     /// Whether ingestion is paused.
     pub paused: bool,
     /// Index of the first visible display line.
@@ -197,6 +207,8 @@ pub struct TuiApp {
     pub copy_palette: PaletteSearch,
     /// Transient status message shown in the status bar.
     pub status_feedback: Option<String>,
+    /// When true, [`Self::status_feedback`] is drawn with [`theme::error_style`].
+    pub status_feedback_is_error: bool,
     /// Whether select mode (entry-wise navigation and copy) is active.
     pub select_mode: bool,
     /// Where log lines currently come from.
@@ -257,7 +269,34 @@ pub struct TuiApp {
     pub total_entry_count: usize,
 }
 
+/// Screen geometry for drawing the filter key autocomplete popup.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct FilterAutocompleteLayout {
+    /// Inner rectangle of the filter panel (content area).
+    pub inner: ratatui::layout::Rect,
+    /// Terminal column of the text cursor.
+    pub cursor_x: u16,
+    /// Terminal row of the text cursor.
+    pub cursor_y: u16,
+    /// Set when [`FilterAutocompleteLayout`] was updated this frame.
+    pub valid: bool,
+}
+
 impl TuiApp {
+    /// Updates [`Self::filter_bar_height`] from the current filter text and focus state.
+    pub fn update_filter_bar_height(&mut self, panel_width: u16) {
+        use super::filter_input::filter_panel_height;
+        use super::filter_input::wrap_filter_lines;
+
+        let inner = panel_width.saturating_sub(2).max(1) as usize;
+        let content_lines = if self.filter_focused {
+            wrap_filter_lines(&self.filter_input, inner).len()
+        } else {
+            1
+        };
+        self.filter_bar_height = filter_panel_height(content_lines);
+    }
+
     /// Creates the application in its initial state.
     ///
     /// The app starts in live mode with no device, no filter, auto-scroll
@@ -271,6 +310,7 @@ impl TuiApp {
     pub fn new(args: CliArgs) -> Self {
         let (ingest, ingest_update_rx) = LogIngest::idle();
         let (status_tx, _status_rx) = tokio::sync::mpsc::unbounded_channel();
+        let empty_filter = empty_effective_filter(&args);
 
         Self {
             args,
@@ -291,8 +331,11 @@ impl TuiApp {
             filter_input: String::default(),
             filter_cursor: 0,
             filter_focused: false,
-            tui_filters: TuiFilterSet::default(),
-            filters_shared: Arc::new(RwLock::new(TuiFilterSet::default())),
+            effective_filter: empty_filter.clone(),
+            filters_shared: Arc::new(RwLock::new(empty_filter)),
+            filter_bar_height: 3,
+            filter_autocomplete: FilterAutocomplete::default(),
+            filter_autocomplete_layout: FilterAutocompleteLayout::default(),
             paused: false,
             scroll_offset: 0,
             max_scroll: 0,
@@ -301,6 +344,7 @@ impl TuiApp {
             viewport_lines: 0,
             copy_palette: PaletteSearch::default(),
             status_feedback: None,
+            status_feedback_is_error: false,
             select_mode: false,
             source_mode: SourceMode::Live,
             selected_device: None,
@@ -346,7 +390,11 @@ impl TuiApp {
             .entries
             .iter()
             .enumerate()
-            .filter(|(_, entry)| self.tui_filters.matches(entry, &self.state))
+            .filter(|(_, entry)| {
+                let now = chrono::Local::now();
+                self.effective_filter
+                    .matches(entry, &self.state, now, &self.args)
+            })
             .map(|(index, _)| index)
             .collect();
 
@@ -446,6 +494,7 @@ impl TuiApp {
 
         self.auto_scroll = false;
         self.status_feedback = None;
+        self.status_feedback_is_error = false;
         let len = self.filtered_indices.len();
         let next = (self.selected_filtered_index as i32 + delta).clamp(0, len as i32 - 1) as usize;
         self.selected_filtered_index = next;
@@ -525,7 +574,10 @@ impl TuiApp {
     /// * `update` - Message to show, or notification that a task finished.
     fn handle_status_update(&mut self, update: StatusUpdate) {
         match update {
-            StatusUpdate::Message(message) => self.status_feedback = Some(message),
+            StatusUpdate::Message(message) => {
+                self.status_feedback = Some(message);
+                self.status_feedback_is_error = false;
+            }
             StatusUpdate::CopyFinished => self.copy_in_progress = false,
             StatusUpdate::ExportFinished => self.export_in_progress = false,
         }
@@ -536,7 +588,7 @@ impl TuiApp {
     /// Silently skipped if the shared lock is poisoned.
     fn sync_shared_filters(&self) {
         if let Ok(mut shared) = self.filters_shared.write() {
-            *shared = self.tui_filters.clone();
+            *shared = self.effective_filter.clone();
         }
     }
 
@@ -634,9 +686,7 @@ impl TuiApp {
             .collect::<Vec<_>>()
             .join(" ");
         self.filter_cursor = self.filter_input.chars().count();
-        self.tui_filters = TuiFilterSet::parse(&self.filter_input);
-        self.sync_shared_filters();
-        self.recompute_filtered();
+        self.apply_effective_filter_from_input();
     }
 
     /// Opens the device picker with a freshly queried device list.
@@ -693,7 +743,7 @@ impl TuiApp {
     ///
     /// `"all"` when no filter is applied, otherwise `"filtered"`.
     pub(crate) fn export_scope(&self) -> &'static str {
-        match self.tui_filters.is_empty() {
+        match self.effective_filter.user_accepts_all() {
             true => "all",
             false => "filtered",
         }
@@ -709,6 +759,7 @@ impl TuiApp {
         }
         if self.export_in_progress {
             self.status_feedback = Some("export already in progress".to_string());
+            self.status_feedback_is_error = true;
             return;
         }
         self.exit_select_mode();
@@ -822,6 +873,7 @@ impl TuiApp {
 
         self.export_in_progress = true;
         self.status_feedback = Some(format!("exporting to {path}..."));
+        self.status_feedback_is_error = false;
 
         let status_tx = self.status_tx.clone();
         let format = self.export_format;
@@ -838,10 +890,32 @@ impl TuiApp {
     /// Removes focus from the input, publishes the filter to the ingest task
     /// and re-filters the buffer.
     fn apply_filter(&mut self) {
-        self.tui_filters = TuiFilterSet::parse(&self.filter_input);
+        self.apply_effective_filter_from_input();
         self.filter_focused = false;
-        self.sync_shared_filters();
-        self.recompute_filtered();
+        self.filter_autocomplete = FilterAutocomplete::default();
+    }
+
+    fn apply_effective_filter_from_input(&mut self) {
+        match EffectiveFilter::from_user_source(&self.filter_input, &self.args) {
+            Ok(filter) => {
+                self.effective_filter = filter;
+                self.sync_shared_filters();
+                self.recompute_filtered();
+                self.status_feedback = None;
+                self.status_feedback_is_error = false;
+            }
+            Err(err) => {
+                self.status_feedback = Some(err.to_string());
+                self.status_feedback_is_error = true;
+            }
+        }
+    }
+
+    /// Re-parses the filter bar while editing; invalid input keeps the last applied filter.
+    fn live_apply_filter(&mut self) {
+        if self.filter_focused && self.args.live_filter {
+            self.apply_effective_filter_from_input();
+        }
     }
 
     /// Scrolls the log view up by `amount` lines.
@@ -854,6 +928,7 @@ impl TuiApp {
     fn scroll_up(&mut self, amount: usize) {
         self.auto_scroll = false;
         self.status_feedback = None;
+        self.status_feedback_is_error = false;
         self.scroll_offset = self.scroll_offset.saturating_sub(amount);
         if self.select_mode {
             self.sync_selection_to_viewport();
@@ -871,6 +946,7 @@ impl TuiApp {
     fn scroll_down(&mut self, amount: usize) {
         self.auto_scroll = false;
         self.status_feedback = None;
+        self.status_feedback_is_error = false;
         let max = self.max_scroll_offset();
         self.scroll_offset = (self.scroll_offset + amount).min(max);
 
@@ -960,11 +1036,12 @@ impl TuiApp {
         }
 
         if self.filter_focused {
-            self.handle_filter_key(key);
+            self.handle_filter_key(key, modifiers);
             return;
         }
 
         self.status_feedback = None;
+        self.status_feedback_is_error = false;
 
         match key {
             KeyCode::Char('q') => set_running(false),
@@ -1079,6 +1156,7 @@ impl TuiApp {
     fn execute_copy_action(&mut self, action: CopyAction) {
         if self.copy_in_progress {
             self.status_feedback = Some("copy already in progress".to_string());
+            self.status_feedback_is_error = true;
             return;
         }
 
@@ -1099,6 +1177,7 @@ impl TuiApp {
 
         self.copy_in_progress = true;
         self.status_feedback = Some(format!("copying {feedback}..."));
+        self.status_feedback_is_error = false;
 
         let status_tx = self.status_tx.clone();
         handle.spawn(async move {
@@ -1115,19 +1194,79 @@ impl TuiApp {
     /// # Arguments
     ///
     /// * `key` - The pressed key.
-    fn handle_filter_key(&mut self, key: KeyCode) {
+    fn handle_filter_key(&mut self, key: KeyCode, modifiers: KeyModifiers) {
+        if key == KeyCode::Char(' ') && modifiers.contains(KeyModifiers::CONTROL) {
+            self.filter_autocomplete
+                .refresh_at_cursor(&self.filter_input, self.filter_cursor);
+            return;
+        }
+
         match key {
-            KeyCode::Esc => self.filter_focused = false,
-            KeyCode::Enter => self.apply_filter(),
-            KeyCode::Backspace => self.delete_filter_char_before_cursor(),
-            KeyCode::Delete => self.delete_filter_char_at_cursor(),
+            KeyCode::Esc => {
+                if self.filter_autocomplete.is_open() {
+                    self.filter_autocomplete = FilterAutocomplete::default();
+                } else {
+                    self.filter_focused = false;
+                }
+            }
+            KeyCode::Enter => {
+                if self.filter_autocomplete.is_open() {
+                    self.accept_filter_autocomplete();
+                } else {
+                    self.apply_filter();
+                }
+            }
+            KeyCode::Tab => {
+                if self.filter_autocomplete.is_open() {
+                    self.accept_filter_autocomplete();
+                }
+            }
+            KeyCode::Up => self.filter_autocomplete.move_selection(-1),
+            KeyCode::Down => self.filter_autocomplete.move_selection(1),
+            KeyCode::Backspace => {
+                self.delete_filter_char_before_cursor();
+                self.filter_autocomplete
+                    .refresh_at_cursor(&self.filter_input, self.filter_cursor);
+                self.live_apply_filter();
+            }
+            KeyCode::Delete => {
+                self.delete_filter_char_at_cursor();
+                self.filter_autocomplete
+                    .refresh_at_cursor(&self.filter_input, self.filter_cursor);
+                self.live_apply_filter();
+            }
             KeyCode::Left => self.move_filter_cursor_left(),
             KeyCode::Right => self.move_filter_cursor_right(),
             KeyCode::Home => self.filter_cursor = 0,
             KeyCode::End => self.filter_cursor = self.filter_input.chars().count(),
-            KeyCode::Char(ch) => self.insert_filter_char(ch),
+            KeyCode::Char(ch) => {
+                self.insert_filter_char(ch);
+                self.filter_autocomplete
+                    .refresh_at_cursor(&self.filter_input, self.filter_cursor);
+                self.live_apply_filter();
+            }
             _ => {}
         }
+    }
+
+    fn accept_filter_autocomplete(&mut self) {
+        let Some(replacement) = self.filter_autocomplete.accept_key() else {
+            return;
+        };
+        let prefix = self.filter_autocomplete.prefix();
+        let prefix_chars = prefix.chars().count();
+        let byte_start = char_index_to_byte(
+            &self.filter_input,
+            self.filter_cursor.saturating_sub(prefix_chars),
+        );
+        let byte_cursor = char_index_to_byte(&self.filter_input, self.filter_cursor);
+        self.filter_input
+            .replace_range(byte_start..byte_cursor, &replacement);
+        self.filter_cursor =
+            self.filter_input[..byte_start].chars().count() + replacement.chars().count();
+        self.filter_autocomplete
+            .refresh_at_cursor(&self.filter_input, self.filter_cursor);
+        self.live_apply_filter();
     }
 
     /// Inserts `ch` into the filter input at the cursor.
@@ -1651,6 +1790,13 @@ impl TuiApp {
 ///
 /// The byte offset of that character, or `text.len()` if `char_index` is
 /// past the end.
+fn empty_effective_filter(args: &CliArgs) -> EffectiveFilter {
+    match EffectiveFilter::from_user_source("", args) {
+        Ok(filter) => filter,
+        Err(_) => panic!("empty filter query must parse"),
+    }
+}
+
 fn char_index_to_byte(text: &str, char_index: usize) -> usize {
     text.char_indices()
         .nth(char_index)
@@ -1686,6 +1832,7 @@ fn char_index_to_byte(text: &str, char_index: usize) -> usize {
 /// enabled, or a frame cannot be drawn.
 pub fn run_tui(args: &mut CliArgs) {
     normalize_cli_args(args);
+    validate_query_flag_conflicts(args);
 
     // Capture all log lines and filter in the TUI bar (same as Android Studio).
     args.tui_mode = true;
@@ -1716,7 +1863,8 @@ pub fn run_tui(args: &mut CliArgs) {
     app.current_app_resolved = app.selected_device.is_some();
     app.catchall_packages = catchall_packages.clone();
     app.filter_input = seed_filter_input(&app.args, &packages);
-    app.tui_filters = TuiFilterSet::parse(&app.filter_input);
+    app.effective_filter = build_startup_effective_filter(&app.args, &packages)
+        .unwrap_or_else(|err| exit_with_error(&err.to_string(), !app.args.no_color));
     app.sync_shared_filters();
 
     app.state = build_state(

@@ -77,6 +77,10 @@
       "type": "string",
       "description": "Only show messages matching this regular expression.\nIt is passed to \"adb logcat -e\", and the TUI also seeds its filter bar with it.\ntype: string (regular expression)\ndefault: unset (no message filter)\ncommand line: -r, --regex <REGEX>\nexample: regex = \"Exception|Error\""
     },
+    "live-filter": {
+      "type": "boolean",
+      "description": "In the TUI, re-apply the filter bar query on every edit while it is focused.\nWhen false, changes apply only when you press Enter.\ntype: boolean\ndefault: true\ncommand line: -L, --live-filter <BOOL> (e.g. --live-filter=false)\nexample: live-filter = false"
+    },
     "log-format": {
       "type": "string",
       "enum": [

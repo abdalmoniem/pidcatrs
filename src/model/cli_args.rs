@@ -185,6 +185,21 @@ pub struct CliArgs {
     #[arg(help = "Filter logcat by current running app(s)")]
     pub current_app: bool,
 
+    /// Logcat-style filter query (cannot combine with other filter flags except tag exclusions).
+    #[arg(short = 'Q')]
+    #[arg(long = "query")]
+    #[arg(required = false)]
+    #[arg(value_name = "QUERY")]
+    #[arg(default_value = None)]
+    #[arg(help_heading = FILTERING_OPTIONS)]
+    #[arg(help = concat!(
+            "Filter log lines with a Logcat-style query (key:value, |, -, quotes, age:5m)",
+            "\nCannot be combined with --tag, --regex, --log-level, or package selection;",
+            "\n--ignore-tag and --ignore-system-tags still apply invisibly"
+        ),
+    )]
+    pub query: Option<String>,
+
     /// Drop lines tagged with known noisy system tags.
     #[arg(short = 'I')]
     #[arg(long = "ignore-system-tags")]
@@ -195,6 +210,7 @@ pub struct CliArgs {
     #[arg(action = ArgAction::SetTrue)]
     #[arg(help = concat!(
             "Filter output by ignoring known system tags",
+            "\nWorks with --query; exclusions are not shown in the TUI filter bar",
             "\nUse --ignore-tag to ignore additional tags if needed"
         ),
     )]
@@ -209,6 +225,7 @@ pub struct CliArgs {
     #[arg(help_heading = FILTERING_OPTIONS)]
     #[arg(help = concat!(
             "Filter output by specified tag(s)",
+            "\nCannot be combined with --query",
             "\nThis can be specified multiple times, or as a comma separated list"
         ),
     )]
@@ -223,6 +240,7 @@ pub struct CliArgs {
     #[arg(help_heading = FILTERING_OPTIONS)]
     #[arg(help = concat!(
             "Filter output by ignoring specified tag(s)",
+            "\nWorks with --query; exclusions are not shown in the TUI filter bar",
             "\nThis can be specified multiple times, or as a comma separated list"
         ),
     )]
@@ -235,7 +253,11 @@ pub struct CliArgs {
     #[arg(value_name = "LEVEL")]
     #[arg(help_heading = FILTERING_OPTIONS)]
     #[arg(default_value_t = LogLevel::VERBOSE)]
-    #[arg(help = "Filter messages lower than minimum log level")]
+    #[arg(help = concat!(
+            "Filter messages lower than minimum log level",
+            "\nCannot be combined with --query"
+        ),
+    )]
     pub log_level: LogLevel,
 
     /// Keep only lines whose message matches this regular expression.
@@ -245,8 +267,27 @@ pub struct CliArgs {
     #[arg(value_name = "REGEX")]
     #[arg(default_value = None)]
     #[arg(help_heading = FILTERING_OPTIONS)]
-    #[arg(help = format!("Filter output messages using the specified {metavar}", metavar = "[REGEX]".cyan().bold()))]
+    #[arg(help = concat!(
+            "Filter output messages using the specified regular expression",
+            "\nCannot be combined with --query"
+        ),
+    )]
     pub regex: Option<String>,
+
+    /// Re-apply the TUI filter bar on each edit while focused (disable with `--live-filter=false`).
+    #[arg(short = 'L')]
+    #[arg(long = "live-filter")]
+    #[arg(required = false)]
+    #[arg(value_name = "BOOL")]
+    #[arg(default_value_t = true)]
+    #[arg(action = ArgAction::Set)]
+    #[arg(help_heading = FILTERING_OPTIONS)]
+    #[arg(help = concat!(
+            "Apply the TUI filter bar while typing (default: true)",
+            "\nUse --live-filter=false to apply only on Enter"
+        ),
+    )]
+    pub live_filter: bool,
 
     /// Prepend a timestamp column to each rendered line.
     #[arg(short = 'T')]

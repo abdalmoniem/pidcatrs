@@ -163,6 +163,14 @@ pub fn build_simple_bottom_border(width: usize) -> String {
     format!("╰{}╯", "─".repeat(width.saturating_sub(2)))
 }
 
+/// Builds a plain top border without a label notch (`╭──────╮`).
+pub fn build_simple_top_border(width: usize) -> String {
+    if width < 2 {
+        return "─".repeat(width);
+    }
+    format!("╭{}╮", "─".repeat(width.saturating_sub(2)))
+}
+
 /// Builds the top border of the log table, with one segment per column.
 ///
 /// The result looks like
@@ -404,6 +412,20 @@ fn render_panel_frame(
         width: area.width.saturating_sub(2),
         height: area.height.saturating_sub(2),
     }
+}
+
+/// Draws a rounded accent border (same corners as dialogs) and returns the inner area.
+///
+/// Used for floating popups such as the filter key autocomplete menu.
+pub fn render_accent_popup_frame(frame: &mut Frame, area: Rect) -> Rect {
+    let width = area.width as usize;
+    render_panel_frame(
+        frame,
+        area,
+        &build_simple_top_border(width),
+        BottomBorder::Plain(&build_simple_bottom_border(width)),
+        true,
+    )
 }
 
 /// Draws a labeled panel (`filter`, nested `preview`, etc.).

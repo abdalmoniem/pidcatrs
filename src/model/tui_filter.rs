@@ -42,12 +42,14 @@ pub enum FilterHighlightField {
 /// One substring to highlight for an applied filter.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FilterHighlightRule {
-    /// Filter token text to locate.
+    /// Literal needle or regular expression pattern when [`Self::regex`] is set.
     pub needle: String,
     /// When set, matching ignores ASCII case (same as filter predicates).
     pub case_insensitive: bool,
     /// Column or region where the needle may be highlighted.
     pub field: FilterHighlightField,
+    /// When true, [`Self::needle`] is a regular expression (see filter query `key~pattern`).
+    pub regex: bool,
 }
 
 /// One constraint parsed from the TUI filter input.
@@ -109,16 +111,19 @@ impl TuiFilterSet {
                     needle: value.clone(),
                     case_insensitive: false,
                     field: FilterHighlightField::Pid,
+                    regex: false,
                 }),
                 TuiFilter::Uid(value) => rules.push(FilterHighlightRule {
                     needle: value.clone(),
                     case_insensitive: false,
                     field: FilterHighlightField::Uid,
+                    regex: false,
                 }),
                 TuiFilter::Package(value) => rules.push(FilterHighlightRule {
                     needle: value.clone(),
                     case_insensitive: true,
                     field: FilterHighlightField::Package,
+                    regex: false,
                 }),
                 TuiFilter::Tag(value) => {
                     if let Some(text) = tag_filter_match_text(&entry.tag, value) {
@@ -126,6 +131,7 @@ impl TuiFilterSet {
                             needle: text,
                             case_insensitive: true,
                             field: FilterHighlightField::Tag,
+                            regex: false,
                         });
                     }
                 }
@@ -133,6 +139,7 @@ impl TuiFilterSet {
                     needle: value.clone(),
                     case_insensitive: true,
                     field: FilterHighlightField::Message,
+                    regex: false,
                 }),
                 TuiFilter::Level(_) => {}
             }
@@ -334,6 +341,7 @@ fn dedupe_highlight_rules(rules: Vec<FilterHighlightRule>) -> Vec<FilterHighligh
             if existing.needle == rule.needle
                 && existing.case_insensitive == rule.case_insensitive
                 && existing.field == rule.field
+                && existing.regex == rule.regex
             {
                 continue 'outer;
             }

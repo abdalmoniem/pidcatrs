@@ -56,10 +56,11 @@ use super::device_picker::device_state_label;
 use super::device_picker::render_device_picker;
 use super::export::export_format_dialog_height;
 use super::export::render_export_format_menu;
+use super::filter_input::cursor_wrapped_position;
+use super::filter_input::styled_filter_content;
 use super::help::HELP_CATALOG;
 use super::help::HelpRow;
 use super::help::build_help_rows;
-use super::palette::input_field_line;
 use super::palette::render_search_field;
 use super::theme;
 
@@ -79,8 +80,9 @@ use crate::controller::util::format_usize_separated;
 /// * `app` - The application state; mutated to update caches, scroll
 ///   positions and list selections as a side effect of rendering.
 pub fn render(frame: &mut Frame, app: &mut TuiApp) {
+    app.update_filter_bar_height(frame.area().width);
     let chunks = Layout::vertical([
-        Constraint::Length(3),
+        Constraint::Length(app.filter_bar_height),
         Constraint::Length(1),
         Constraint::Min(0),
     ])
@@ -90,6 +92,7 @@ pub fn render(frame: &mut Frame, app: &mut TuiApp) {
     refresh_log_view(app, chunks[2usize]);
     render_status_bar(frame, app, chunks[1usize]);
     render_log_table(frame, app, chunks[2usize]);
+    render_filter_autocomplete_popup(frame, app);
 
     match app.overlay {
         Overlay::DevicePicker => {
@@ -152,7 +155,8 @@ const EXPORT_FORMAT_DIALOG_WIDTH: u16 = 44;
 const LOG_SCROLLBAR_GUTTER: u16 = 1;
 
 /// Placeholder shown in the empty filter input.
-const FILTER_PLACEHOLDER: &str = "e.g. package:com.example tag:ActivityManager level:debug";
+const FILTER_PLACEHOLDER: &str =
+    "e.g. initialized  age:5m  (tag:Foo | tag:Bar) -level:verbose  message~Error.*";
 
 /// Draws the `filter` panel containing the filter input.
 ///
@@ -164,29 +168,52 @@ const FILTER_PLACEHOLDER: &str = "e.g. package:com.example tag:ActivityManager l
 /// * `frame` - Frame to draw on.
 /// * `app` - Application state (filter text, cursor and focus).
 /// * `area` - Outer rectangle of the panel, including its border.
-fn render_filter_bar(frame: &mut Frame, app: &TuiApp, area: Rect) {
+fn render_filter_bar(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
+    app.filter_autocomplete_layout.valid = false;
     let inner = render_labeled_panel(frame, area, Some("filter"), app.filter_focused);
-    let visible_width = inner.width as usize;
-    let (text, scroll_chars) = input_field_line(
+    let visible_width = inner.width.max(1) as usize;
+    let lines = styled_filter_content(
         &app.filter_input,
+        visible_width,
+        app.filter_focused,
         FILTER_PLACEHOLDER,
-        app.filter_cursor,
-        visible_width.max(1),
     );
 
     frame.render_widget(
-        Paragraph::new(text).style(theme::app_background_style()),
+        Paragraph::new(lines).style(theme::app_background_style()),
         inner,
     );
 
     if app.filter_focused {
-        let cursor_x = inner.x.saturating_add(
-            app.filter_cursor
-                .saturating_sub(scroll_chars)
-                .min(visible_width.saturating_sub(1)) as u16,
-        );
-        frame.set_cursor_position((cursor_x, inner.y));
+        let (row, col) =
+            cursor_wrapped_position(&app.filter_input, visible_width, app.filter_cursor);
+        let cursor_x = inner
+            .x
+            .saturating_add(col.min(visible_width.saturating_sub(1)) as u16);
+        let cursor_y = inner
+            .y
+            .saturating_add(row.min(inner.height.saturating_sub(1) as usize) as u16);
+        frame.set_cursor_position((cursor_x, cursor_y));
+        app.filter_autocomplete_layout = super::app::FilterAutocompleteLayout {
+            inner,
+            cursor_x,
+            cursor_y,
+            valid: true,
+        };
     }
+}
+
+/// Draws the key autocomplete popup over the log area (filter bar height unchanged).
+fn render_filter_autocomplete_popup(frame: &mut Frame, app: &TuiApp) {
+    if !app.filter_focused || !app.filter_autocomplete.is_open() {
+        return;
+    }
+    let layout = app.filter_autocomplete_layout;
+    if !layout.valid {
+        return;
+    }
+    app.filter_autocomplete
+        .render_popup(frame, layout.inner, layout.cursor_x, layout.cursor_y);
 }
 
 /// Draws the one-line status bar.
@@ -263,10 +290,12 @@ fn render_status_bar(frame: &mut Frame, app: &TuiApp, area: Rect) {
     ]);
     if let Some(feedback) = &app.status_feedback {
         spans.push(Span::styled("  │  ", theme::dim_style()));
-        spans.push(Span::styled(
-            feedback.clone(),
-            Style::default().fg(theme::success()),
-        ));
+        let feedback_style = if app.status_feedback_is_error {
+            theme::error_style()
+        } else {
+            Style::default().fg(theme::success())
+        };
+        spans.push(Span::styled(feedback.clone(), feedback_style));
     }
 
     let line = Line::from(spans);
@@ -319,7 +348,7 @@ fn refresh_log_view(app: &mut TuiApp, log_area: Rect) {
         width,
         app.filter_generation,
         build_budget,
-        &app.tui_filters,
+        app.effective_filter.user_query(),
     );
 
     let rendered_lines = app.display_cache.rendered_line_count();
@@ -700,9 +729,8 @@ fn render_file_explorer_overlay(frame: &mut Frame, app: &mut TuiApp, area: Rect)
     if let Some(err) = app.file_open_error.as_deref() {
         let error_inner = render_labeled_panel(frame, chunks[1usize], Some("error"), false);
         frame.render_widget(
-            Paragraph::new(err)
-                .style(theme::app_background_style())
-                .style(theme::error_style()),
+            Paragraph::new(Line::from(Span::styled(err, theme::error_style())))
+                .style(theme::app_background_style()),
             error_inner,
         );
     }

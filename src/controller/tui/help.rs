@@ -188,7 +188,7 @@ pub const HELP_CATALOG: &[HelpEntry] = &[
     HelpEntry {
         section: "filter bar",
         keys: "enter",
-        description: "apply filter",
+        description: "confirm filter and leave the filter bar (live updates while typing unless --live-filter=false)",
         action: None,
     },
     HelpEntry {
@@ -206,7 +206,19 @@ pub const HELP_CATALOG: &[HelpEntry] = &[
     HelpEntry {
         section: "filter bar",
         keys: "backspace / delete",
-        description: "edit filter text",
+        description: "edit filter text (wraps while focused; collapses on apply)",
+        action: None,
+    },
+    HelpEntry {
+        section: "filter bar",
+        keys: "ctrl+space",
+        description: "show or refresh filter key completions (also updates while typing keys)",
+        action: None,
+    },
+    HelpEntry {
+        section: "filter bar",
+        keys: "tab / ↑ / ↓ / enter",
+        description: "choose a completion from the inline menu",
         action: None,
     },
     HelpEntry {
@@ -320,7 +332,31 @@ pub const HELP_CATALOG: &[HelpEntry] = &[
     HelpEntry {
         section: "filter syntax",
         keys: "word",
-        description: "match message text (and with other keywords)",
+        description: "match message text (implicit message:); space = AND",
+        action: None,
+    },
+    HelpEntry {
+        section: "filter syntax",
+        keys: "a | b",
+        description: "OR; use parentheses to group",
+        action: None,
+    },
+    HelpEntry {
+        section: "filter syntax",
+        keys: "-tag:Noise",
+        description: "NOT (prefix - on a term)",
+        action: None,
+    },
+    HelpEntry {
+        section: "filter syntax",
+        keys: "message~regex",
+        description: "regular expression on a field value",
+        action: None,
+    },
+    HelpEntry {
+        section: "filter syntax",
+        keys: "age:5m",
+        description: "entries newer than the duration (s/m/h/d)",
         action: None,
     },
 ];

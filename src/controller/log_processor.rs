@@ -59,12 +59,9 @@ use crate::ValueOrPanic;
 use crate::Writer;
 use crate::active_theme;
 use crate::exit_with_error;
-use crate::is_ignored_tag;
 use crate::model::timestamp::format_log_timestamp;
 use crate::model::timestamp::timestamp_from_log_line;
-use crate::passes_log_level;
 use crate::passes_package_ownership;
-use crate::passes_tag_filter;
 
 lazy_static! {
     /// ELLIPSIS is a unicode ellipsis character.
@@ -634,23 +631,6 @@ pub fn process_line(line: &str, state: &mut State, args: &CliArgs) -> Option<Log
         return None;
     }
 
-    if !args.tui_mode && !passes_log_level(level, state.log_level) {
-        return None;
-    }
-
-    if let Some(ignore_tag) = &args.ignore_tag
-        && is_ignored_tag(&tag, ignore_tag)
-    {
-        return None;
-    }
-
-    if !args.tui_mode
-        && let Some(tag_args) = &args.tag
-        && !passes_tag_filter(&tag, tag_args)
-    {
-        return None;
-    }
-
     if tag == "DEBUG"
         && get_dead_process(message.trim_start()).is_none()
         && BACKTRACE_LINE.captures(message.trim_start()).is_some()
@@ -853,9 +833,20 @@ pub fn flush_long_log_entry(state: &mut State, args: &CliArgs, writers: &mut [Wr
 /// writers.
 ///
 /// This is the plain-mode entry point that combines [`process_log_input`] and [`render_entry`].
-pub fn write_log_line(line: &str, state: &mut State, args: &CliArgs, writers: &mut [Writer]) {
+pub fn write_log_line(
+    line: &str,
+    state: &mut State,
+    args: &CliArgs,
+    writers: &mut [Writer],
+    filter: &crate::model::filter_engine::EffectiveFilter,
+) {
+    use chrono::Local;
+
+    let now = Local::now();
     for entry in process_log_input(line, state, args) {
-        render_entry(&entry, state, args, writers);
+        if filter.matches(&entry, state, now, args) {
+            render_entry(&entry, state, args, writers);
+        }
     }
     writers.iter_mut().for_each(Writer::flush);
 }

@@ -334,6 +334,16 @@ pub const THEME_DOC: &[&str] = &[
     "example: theme = \"monokai\"",
 ];
 
+/// Documentation lines for the `live-filter` key in JSON Schema and generated TOML.
+pub const LIVE_FILTER_DOC: &[&str] = &[
+    "In the TUI, re-apply the filter bar query on every edit while it is focused.",
+    "When false, changes apply only when you press Enter.",
+    "type: boolean",
+    "default: true",
+    "command line: -L, --live-filter <BOOL> (e.g. --live-filter=false)",
+    "example: live-filter = false",
+];
+
 /// Documentation lines for the `plain` key in JSON Schema and generated TOML.
 pub const PLAIN_DOC: &[&str] = &[
     "Use plain text output instead of the interactive TUI. Plain output is also",
@@ -405,6 +415,9 @@ pub struct Config {
     #[schemars(description = REGEX_DOC.join("\n"))]
     /// Message filter regular expression.
     pub regex: Option<String>,
+    #[schemars(description = LIVE_FILTER_DOC.join("\n"))]
+    /// Re-apply the TUI filter bar while typing.
+    pub live_filter: Option<bool>,
     #[serde(deserialize_with = "parse_value_enum")]
     #[schemars(schema_with = "value_enum_schema::<LogFormatKind>")]
     #[schemars(description = LOG_FORMAT_DOC.join("\n"))]
@@ -554,6 +567,7 @@ impl Config {
             ignore_tag,
             log_level,
             regex,
+            live_filter,
             log_format,
             timestamps,
             timestamp_format,
@@ -599,6 +613,7 @@ impl Config {
         );
         set_unless_cli(&mut args.log_level, log_level, matches, "log_level");
         set_unless_cli(&mut args.regex, regex.map(Some), matches, "regex");
+        set_unless_cli(&mut args.live_filter, live_filter, matches, "live_filter");
         set_unless_cli(
             &mut args.log_format,
             log_format.map(LogFormat::new),
@@ -667,6 +682,7 @@ impl Config {
             ignore_tag: args.ignore_tag.clone(),
             log_level: Some(args.log_level),
             regex: args.regex.clone(),
+            live_filter: Some(args.live_filter),
             log_format: Some(args.log_format.kind),
             timestamps: Some(args.show_timestamps),
             timestamp_format: Some(args.timestamp_format.clone()),
@@ -701,6 +717,7 @@ impl Config {
             ignore_tag,
             log_level,
             regex,
+            live_filter,
             log_format,
             timestamps,
             timestamp_format,
@@ -779,6 +796,7 @@ impl Config {
                         "info",
                     ),
                     DocItem::optional("regex", REGEX_DOC, regex, "Exception|Error"),
+                    DocItem::optional("live-filter", LIVE_FILTER_DOC, live_filter, true),
                 ],
             },
             DocSection {

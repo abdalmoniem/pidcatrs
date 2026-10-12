@@ -50,8 +50,12 @@ mod display_cache;
 mod export;
 /// Path helpers and validation for the open/save file dialogs.
 mod file_source;
+/// Inline key autocomplete for the filter bar.
+mod filter_autocomplete;
 /// Filter-token highlighting on rendered log lines.
 mod filter_highlight;
+/// Multiline filter input layout and syntax coloring.
+mod filter_input;
 /// Command palette / help catalog and its row model.
 mod help;
 /// Background log ingestion (live `adb logcat`, file and pipe sources).
