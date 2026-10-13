@@ -79,9 +79,9 @@ pidcatrs filters logcat output by application package name, colorizes logs for r
 
   - **Multiline input** — Soft-wraps while focused; collapses to one line with an ellipsis when unfocused.
   - **Syntax coloring** — Filter key names and `:` / `~` operators use the theme accent color.
-  - **Key autocomplete** — **Ctrl+Space** (or typing a key prefix) opens a popup at the cursor with `key:` / `key~` rows; **Tab** or **Enter** inserts the selection; **↑** / **↓** move the list.
-  - **Editing shortcuts** — **Ctrl+L** clear; **Ctrl+←** / **Ctrl+→** word motion; **Ctrl+W** / **Ctrl+Del** delete previous/next word.
-  - **Export / copy** — **Ctrl+s** export and filtered views respect the effective query (user text plus implicit ignore tags).
+  - **Key autocomplete** — **`<C-space>`** (or typing a key prefix) opens a popup at the cursor with `key:` / `key~` rows; **Tab** or **Enter** inserts the selection; **↑** / **↓** move the list.
+  - **Editing shortcuts** — **`<C-l>`** clear; **`<C-←>`** / **`<C-→>`** word motion; **`<C-w>`** / **`<C-del>`** delete previous/next word.
+  - **Export / copy** — **`<C-s>`** export and filtered views respect the effective query (user text plus implicit ignore tags).
 
 - ## Formatting and adb
 
@@ -283,7 +283,7 @@ Press **`?`** anytime to open the **command palette** (searchable list of shortc
 
   | Keys | Action |
   | --- | --- |
-  | `q`, `Ctrl+c` | Quit |
+  | `q` / `<C-c>` | Quit |
   | `?` | Open command palette |
   | `Esc` | Close dialog / stop editing filter |
 
@@ -314,7 +314,7 @@ Press **`?`** anytime to open the **command palette** (searchable list of shortc
   | `l` | Clear buffer and restart live logcat |
   | `d` | Open device picker |
   | `o` | Open log file (file explorer) |
-  | `Ctrl+s` | Export entries matching the current filter |
+  | `<C-s>` | Export entries matching the current filter |
 
 - ## Filter bar
 
@@ -325,11 +325,11 @@ Press **`?`** anytime to open the **command palette** (searchable list of shortc
   | `Esc` | Close autocomplete, or exit the bar |
   | `←` / `→`, `Home` / `End` | Move cursor in filter text |
   | `Backspace` / `Delete` | Edit filter text (bar expands while focused) |
-  | `Ctrl+Space` | Open or refresh key autocomplete at the cursor |
+  | `<C-space>` | Open or refresh key autocomplete at the cursor |
   | `Tab` / `↑` / `↓` / `Enter` | Choose a completion from the popup |
-  | `Ctrl+L` | Clear the filter bar |
-  | `Ctrl+←` / `Ctrl+→` | Move cursor by word |
-  | `Ctrl+W` / `Ctrl+Del` | Delete previous / next word |
+  | `<C-l>` | Clear the filter bar |
+  | `<C-←>` / `<C-→>` | Move cursor by word |
+  | `<C-w>` / `<C-del>` | Delete previous / next word |
 
   **Filter syntax** (same as `-Q` / `--query`; space = AND):
 
@@ -351,7 +351,7 @@ Press **`?`** anytime to open the **command palette** (searchable list of shortc
   | Keys | Action |
   | --- | --- |
   | `Enter` | Select highlighted device |
-  | `Ctrl+r` | Refresh device list |
+  | `<C-r>` | Refresh device list |
   | `j` / `k`, `↑` / `↓` | Move selection |
 
 - ## Copy menu

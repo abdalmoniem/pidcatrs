@@ -216,7 +216,7 @@ pub fn hint_key_style() -> Style {
 }
 
 /// The "export" shortcut hint, appended when entries can be exported.
-const EXPORT_HINT: (&str, &str) = ("^s", " export");
+const EXPORT_HINT: (&str, &str) = ("<C-s>", " export");
 
 /// Returns the shortcut hints shown in the log table's bottom border.
 ///

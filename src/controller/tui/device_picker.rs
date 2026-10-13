@@ -56,7 +56,7 @@ const DEVICE_PICKER_HINTS: &[(&str, &str)] = &[
     ("↑↓", " navigate"),
     ("enter", " select"),
     ("esc", " cancel"),
-    ("ctrl+r", " refresh"),
+    ("<C-r>", " refresh"),
     ("o", " open file"),
 ];
 
@@ -157,7 +157,7 @@ pub fn render_device_picker(
             ListItem::new(""),
             ListItem::new(Line::from(vec![
                 Span::styled("connect a device, then press ", theme::hint_style()),
-                Span::styled("ctrl+r", theme::hint_key_style()),
+                Span::styled("<C-r>", theme::hint_key_style()),
                 Span::styled(" to refresh", theme::hint_style()),
             ])),
         ])

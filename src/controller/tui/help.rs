@@ -53,7 +53,7 @@ pub enum HelpAction {
 pub struct HelpEntry {
     /// Name of the group this entry is listed under (e.g. `"log view"`).
     pub section: &'static str,
-    /// The key(s) or syntax, as displayed (e.g. `"j / k / ↑ / ↓"`).
+    /// The key(s) or syntax, as displayed (e.g. `"j / k / ↑ / ↓"`, `"<C-s>"`).
     pub keys: &'static str,
     /// Short explanation of what the binding does.
     pub description: &'static str,
@@ -69,13 +69,7 @@ pub struct HelpEntry {
 pub const HELP_CATALOG: &[HelpEntry] = &[
     HelpEntry {
         section: "general",
-        keys: "q",
-        description: "quit",
-        action: Some(HelpAction::Quit),
-    },
-    HelpEntry {
-        section: "general",
-        keys: "ctrl+c",
+        keys: "q / <C-c>",
         description: "quit",
         action: Some(HelpAction::Quit),
     },
@@ -183,7 +177,7 @@ pub const HELP_CATALOG: &[HelpEntry] = &[
     },
     HelpEntry {
         section: "log capture",
-        keys: "ctrl+s",
+        keys: "<C-s>",
         description: "export entries matching the current filter to a file",
         action: Some(HelpAction::ExportEntries),
     },
@@ -219,25 +213,25 @@ pub const HELP_CATALOG: &[HelpEntry] = &[
     },
     HelpEntry {
         section: "filter bar",
-        keys: "ctrl+l",
+        keys: "<C-l>",
         description: "clear the filter bar",
         action: None,
     },
     HelpEntry {
         section: "filter bar",
-        keys: "ctrl+← / ctrl+→",
+        keys: "<C-←> / <C-→>",
         description: "move cursor by word",
         action: None,
     },
     HelpEntry {
         section: "filter bar",
-        keys: "ctrl+w / ctrl+del",
+        keys: "<C-w> / <C-del>",
         description: "delete previous or next word",
         action: None,
     },
     HelpEntry {
         section: "filter bar",
-        keys: "ctrl+space",
+        keys: "<C-space>",
         description: "show or refresh filter key completions (also updates while typing keys)",
         action: None,
     },
@@ -255,7 +249,7 @@ pub const HELP_CATALOG: &[HelpEntry] = &[
     },
     HelpEntry {
         section: "device picker",
-        keys: "ctrl+r",
+        keys: "<C-r>",
         description: "refresh device list",
         action: None,
     },
