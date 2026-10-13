@@ -23,7 +23,9 @@ use std::fmt::Result as FmtResult;
 use std::fs;
 use std::path::MAIN_SEPARATOR;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::OnceLock;
+use std::sync::RwLock;
 
 use itertools::Itertools;
 
@@ -63,8 +65,8 @@ pub struct BundledTheme {
 /// Generated at build time from `themes/*.toml`, contains all the theme names and their paths
 pub const BUNDLED_THEMES: &[BundledTheme] = get_bundled_themes!("src/config/themes");
 
-/// Lazily initialized active theme after [`set_active`].
-static ACTIVE_THEME: OnceLock<Theme> = OnceLock::new();
+/// Holds the active theme; updated at startup and when the user picks a new theme in the TUI.
+static ACTIVE_THEME: OnceLock<RwLock<Arc<Theme>>> = OnceLock::new();
 
 /// File name helpers for embedded themes.
 impl BundledTheme {
@@ -655,20 +657,39 @@ pub fn parse_theme(source: &str) -> Result<ThemeFile, String> {
     toml::from_str(source).map_err(|err| err.to_string().trim_end().to_string())
 }
 
-/// Falls back to the embedded default theme when no theme has been activated.
-pub fn active() -> &'static Theme {
-    ACTIVE_THEME.get_or_init(|| {
-        bundled_theme(DEFAULT_THEME_NAME)
-            .ok_or_else(|| format!("the default theme '{DEFAULT_THEME_NAME}' is not bundled"))
-            .and_then(|bundled| parse_theme(bundled.source))
-            .and_then(|theme_file| theme_file.resolve())
-            .unwrap_or_panic("the embedded default theme is invalid")
-    })
+fn embedded_default_theme() -> Theme {
+    bundled_theme(DEFAULT_THEME_NAME)
+        .ok_or_else(|| format!("the default theme '{DEFAULT_THEME_NAME}' is not bundled"))
+        .and_then(|bundled| parse_theme(bundled.source))
+        .and_then(|theme_file| theme_file.resolve())
+        .unwrap_or_panic("the embedded default theme is invalid")
 }
 
-/// Has no effect once a theme is active, so it must run before anything reads [`active`].
+fn active_storage() -> &'static RwLock<Arc<Theme>> {
+    ACTIVE_THEME.get_or_init(|| RwLock::new(Arc::new(embedded_default_theme())))
+}
+
+/// Returns a clone of the active theme (updates when [`set_active`] runs).
+pub fn active() -> Arc<Theme> {
+    active_storage()
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+}
+
+/// Installs or replaces the active theme.
 pub fn set_active(theme: Theme) {
-    let _ = ACTIVE_THEME.set(theme);
+    let arc = Arc::new(theme);
+    match ACTIVE_THEME.get() {
+        Some(lock) => {
+            if let Ok(mut guard) = lock.write() {
+                *guard = arc;
+            }
+        }
+        None => {
+            let _ = ACTIVE_THEME.set(RwLock::new(arc));
+        }
+    }
 }
 
 /// Writes each bundled theme that is missing from the themes directory or whose

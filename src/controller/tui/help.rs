@@ -44,6 +44,8 @@ pub enum HelpAction {
     ExportEntries,
     /// Move keyboard focus to the filter input.
     FocusFilter,
+    /// Open the theme selection dialog.
+    OpenThemePicker,
 }
 
 /// One documented key binding or filter keyword.
@@ -88,6 +90,12 @@ pub const HELP_CATALOG: &[HelpEntry] = &[
         keys: "esc",
         description: "close dialog / stop editing filter",
         action: None,
+    },
+    HelpEntry {
+        section: "general",
+        keys: "",
+        description: "change theme",
+        action: Some(HelpAction::OpenThemePicker),
     },
     HelpEntry {
         section: "log view",
@@ -253,6 +261,18 @@ pub const HELP_CATALOG: &[HelpEntry] = &[
     },
     HelpEntry {
         section: "device picker",
+        keys: "j / k / ↑ / ↓",
+        description: "move selection",
+        action: None,
+    },
+    HelpEntry {
+        section: "theme picker",
+        keys: "enter",
+        description: "apply highlighted theme",
+        action: None,
+    },
+    HelpEntry {
+        section: "theme picker",
         keys: "j / k / ↑ / ↓",
         description: "move selection",
         action: None,

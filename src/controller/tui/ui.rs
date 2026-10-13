@@ -21,8 +21,8 @@
 //!
 //! [`render`] draws one complete frame: the filter bar on top, a one-line
 //! status bar, the scrollable log table, and — if one is active — a modal
-//! overlay (device picker, file dialog, command palette, copy menu or export
-//! format menu). The module also hosts the ANSI-to-ratatui conversion
+//! overlay (device picker, theme picker, file dialog, command palette, copy
+//! menu or export format menu). The module also hosts the ANSI-to-ratatui conversion
 //! ([`line_from_ansi`]) used to turn pre-colored log output into styled
 //! [`Line`]s.
 
@@ -63,6 +63,7 @@ use super::help::HelpRow;
 use super::help::build_help_rows;
 use super::palette::render_search_field;
 use super::theme;
+use super::theme_picker::render_theme_picker;
 
 use crate::controller::util::format_usize_separated;
 
@@ -96,15 +97,25 @@ pub fn render(frame: &mut Frame, app: &mut TuiApp) {
 
     match app.overlay {
         Overlay::DevicePicker => {
-            let area = centered_rect(72, 78, frame.area());
+            let area = centered_rect(50, 50, frame.area());
             render_device_picker(frame, &app.devices, &mut app.device_palette, area);
         }
+        Overlay::ThemePicker => {
+            let area = centered_rect(50, 50, frame.area());
+            render_theme_picker(
+                frame,
+                &app.theme_names,
+                &app.args.theme,
+                &mut app.theme_palette,
+                area,
+            );
+        }
         Overlay::FileDialog => {
-            let area = centered_rect(80, 75, frame.area());
+            let area = centered_rect(80, 80, frame.area());
             render_file_explorer_overlay(frame, app, area);
         }
         Overlay::Help => {
-            let area = centered_rect(72, 78, frame.area());
+            let area = centered_rect(80, 80, frame.area());
             render_help(frame, app, area);
         }
         Overlay::CopyMenu => {
@@ -603,7 +614,8 @@ fn render_help_list(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
     }
 
     app.help_palette.clamp_selection(rows.len());
-    app.help_palette.ensure_list_top_visible(list_height);
+    app.help_palette
+        .ensure_list_top_visible(list_height, rows.len());
 
     let visible_lines: Vec<Line> = rows
         .iter()

@@ -51,17 +51,21 @@ use std::sync::RwLock;
 
 use crate::AdbDevice;
 use crate::CliArgs;
+use crate::Config;
 use crate::LogEntry;
 use crate::State;
 use crate::ValueOrPanic;
+use crate::available_themes;
 use crate::build_adb_command;
 use crate::controller::terminal::register_tui_color_override;
 use crate::controller::terminal::register_tui_mouse_capture;
 use crate::controller::terminal::register_tui_terminal;
 use crate::controller::terminal::restore_tui_terminal;
 use crate::get_adb_devices;
+use crate::load_theme;
 use crate::model::filter_engine::EffectiveFilter;
 use crate::resolve_initial_device;
+use crate::set_active_theme;
 use crate::set_running;
 
 use crate::controller::setup::bootstrap_adb_tui;
@@ -110,6 +114,7 @@ use super::palette::PaletteKeyAction;
 use super::palette::PaletteSearch;
 use super::palette::handle_palette_key;
 use super::theme;
+use super::theme_picker::filter_theme_indices;
 use super::ui;
 
 use tui_file_explorer::ExplorerCommand;
@@ -164,6 +169,8 @@ pub enum Overlay {
     CopyMenu,
     /// The "export format" menu.
     ExportFormat,
+    /// The "change theme" dialog.
+    ThemePicker,
 }
 
 /// Complete state of the interactive viewer.
@@ -227,6 +234,10 @@ pub struct TuiApp {
     pub help_palette: PaletteSearch,
     /// Search/selection state of the device picker.
     pub device_palette: PaletteSearch,
+    /// Search/selection state of the theme picker.
+    pub theme_palette: PaletteSearch,
+    /// Theme names shown in the theme picker (refreshed when it opens).
+    pub theme_names: Vec<String>,
     /// File explorer of the open file dialog (`Some` while it is open).
     pub file_explorer: Option<FileExplorer>,
     /// Error displayed inside the file dialog, if any.
@@ -356,6 +367,8 @@ impl TuiApp {
             overlay: Overlay::None,
             help_palette: PaletteSearch::default(),
             device_palette: PaletteSearch::default(),
+            theme_palette: PaletteSearch::default(),
+            theme_names: Vec::default(),
             file_explorer: None,
             file_open_error: None,
             file_path_input: PaletteSearch::default(),
@@ -705,6 +718,70 @@ impl TuiApp {
         self.overlay = Overlay::DevicePicker;
     }
 
+    /// Opens the theme picker with the current list of available themes.
+    fn open_theme_picker(&mut self) {
+        self.exit_select_mode();
+        self.theme_names = available_themes();
+        self.theme_palette.reset();
+        self.select_active_theme_in_palette();
+        self.overlay = Overlay::ThemePicker;
+    }
+
+    /// Highlights the active theme in the theme picker and scrolls it into view.
+    fn select_active_theme_in_palette(&mut self) {
+        let filtered = filter_theme_indices(&self.theme_names, &self.theme_palette.query);
+        let current = self.args.theme.as_str();
+        let selected = filtered
+            .iter()
+            .position(|&index| {
+                self.theme_names
+                    .get(index)
+                    .is_some_and(|name| name == current)
+            })
+            .unwrap_or(0);
+        self.theme_palette.selected = selected;
+        self.theme_palette.clamp_selection(filtered.len());
+        // Approximate list height until the first frame (dialog body minus search row).
+        const ESTIMATED_LIST_HEIGHT: usize = 12;
+        self.theme_palette
+            .ensure_list_top_visible(ESTIMATED_LIST_HEIGHT, filtered.len());
+    }
+
+    /// Applies the highlighted theme, persists it to config, and closes the dialog.
+    fn confirm_theme_picker(&mut self) {
+        let filtered = filter_theme_indices(&self.theme_names, &self.theme_palette.query);
+        let Some(&theme_index) = filtered.get(self.theme_palette.selected) else {
+            return;
+        };
+        let Some(name) = self.theme_names.get(theme_index).cloned() else {
+            return;
+        };
+
+        match load_theme(&name) {
+            Ok((_file, theme)) => {
+                set_active_theme(theme);
+                self.args.theme = name.clone();
+                self.explorer_theme = theme::explorer_theme();
+                self.display_cache.invalidate();
+                self.overlay = Overlay::None;
+                match Config::persist_theme_name(&name, &self.args) {
+                    Ok(()) => {
+                        self.status_feedback = Some(format!("theme: {name}"));
+                        self.status_feedback_is_error = false;
+                    }
+                    Err(message) => {
+                        self.status_feedback = Some(message);
+                        self.status_feedback_is_error = true;
+                    }
+                }
+            }
+            Err(message) => {
+                self.status_feedback = Some(message);
+                self.status_feedback_is_error = true;
+            }
+        }
+    }
+
     /// Selects the highlighted device in the picker.
     ///
     /// Ignored when the highlighted device is not selectable (e.g. offline).
@@ -1032,6 +1109,11 @@ impl TuiApp {
 
         if self.overlay == Overlay::ExportFormat {
             self.handle_export_format_key(key, modifiers);
+            return;
+        }
+
+        if self.overlay == Overlay::ThemePicker {
+            self.handle_theme_picker_key(key, modifiers);
             return;
         }
 
@@ -1384,6 +1466,7 @@ impl TuiApp {
                 self.filter_focused = true;
                 self.filter_cursor = self.filter_input.chars().count();
             }
+            HelpAction::OpenThemePicker => self.open_theme_picker(),
         }
     }
 
@@ -1544,6 +1627,16 @@ impl TuiApp {
                     );
                 }
             }
+            Overlay::ThemePicker => {
+                let filtered = filter_theme_indices(&self.theme_names, &self.theme_palette.query);
+                for _ in 0..3 {
+                    self.theme_palette.move_selection(
+                        filtered.len(),
+                        if scroll_up { -1 } else { 1 },
+                        |_| true,
+                    );
+                }
+            }
             Overlay::None if !self.filter_focused => {
                 if scroll_up {
                     self.scroll_up(3);
@@ -1593,6 +1686,27 @@ impl TuiApp {
                 let filtered = filter_device_indices(&self.devices, &self.device_palette.query);
                 self.device_palette.select_first(0);
                 self.device_palette.clamp_selection(filtered.len());
+            }
+            PaletteKeyAction::None => {}
+        }
+    }
+
+    /// Handles a key press while the theme picker is open.
+    fn handle_theme_picker_key(&mut self, key: KeyCode, modifiers: KeyModifiers) {
+        let filtered = filter_theme_indices(&self.theme_names, &self.theme_palette.query);
+        let action = handle_palette_key(
+            &mut self.theme_palette,
+            key,
+            modifiers,
+            filtered.len(),
+            |_| true,
+        );
+
+        match action {
+            PaletteKeyAction::Enter => self.confirm_theme_picker(),
+            PaletteKeyAction::Close => self.overlay = Overlay::None,
+            PaletteKeyAction::ClearSearch | PaletteKeyAction::QueryChanged => {
+                self.select_active_theme_in_palette();
             }
             PaletteKeyAction::None => {}
         }

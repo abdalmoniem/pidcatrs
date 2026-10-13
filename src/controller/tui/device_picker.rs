@@ -174,16 +174,15 @@ pub fn render_device_picker(
         );
     } else {
         search.clamp_selection(filtered.len());
-        search.ensure_list_top_visible(list_height);
+        search.ensure_list_top_visible(list_height, filtered.len());
 
         let items = filtered
             .iter()
             .enumerate()
             .skip(search.list_top)
             .take(list_height)
-            .map(|(visible_index, device_index)| {
-                let device = &devices[*device_index];
-                let list_index = search.list_top + visible_index;
+            .map(|(list_index, &device_index)| {
+                let device = &devices[device_index];
                 let selectable = is_selectable(device);
                 let prefix = if list_index == search.selected {
                     "▸ "

@@ -200,8 +200,14 @@ impl PaletteSearch {
     /// # Arguments
     ///
     /// * `list_height` - Number of rows visible at once; `0` is a no-op.
-    pub fn ensure_list_top_visible(&mut self, list_height: usize) {
+    /// * `row_count` - Total rows in the list (used to cap scroll at the end).
+    pub fn ensure_list_top_visible(&mut self, list_height: usize, row_count: usize) {
         if list_height == 0 {
+            return;
+        }
+
+        if row_count == 0 {
+            self.list_top = 0;
             return;
         }
 
@@ -209,6 +215,11 @@ impl PaletteSearch {
             self.list_top = self.selected;
         } else if self.selected >= self.list_top + list_height {
             self.list_top = self.selected + 1 - list_height;
+        }
+
+        let max_top = row_count.saturating_sub(list_height);
+        if self.list_top > max_top {
+            self.list_top = max_top;
         }
     }
 }

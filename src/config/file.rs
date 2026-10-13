@@ -19,6 +19,7 @@
 
 use std::fs;
 use std::path::Path;
+use std::path::PathBuf;
 
 use clap::ArgMatches;
 use clap::ValueEnum;
@@ -664,6 +665,34 @@ impl Config {
         );
         set_unless_cli(&mut args.plain, plain, matches, "plain");
         set_unless_cli(&mut args.theme, theme, matches, "theme");
+    }
+
+    /// Writes `theme_name` to the effective config file, creating the file when missing.
+    pub fn persist_theme_name(theme_name: &str, args: &CliArgs) -> Result<(), String> {
+        let path = match args.config_path.as_deref() {
+            Some(path) => PathBuf::from(path),
+            None => default_config_file()
+                .ok_or_else(|| "could not resolve the configuration directory".to_string())?,
+        };
+
+        let mut config = if path.is_file() {
+            Self::load(&path)?
+        } else {
+            if let Some(dir) = path.parent() {
+                fs::create_dir_all(dir).map_err(|err| {
+                    format!(
+                        "failed to create config directory '{}': {err}",
+                        dir.display()
+                    )
+                })?;
+            }
+            Self::from_args(args)
+        };
+
+        config.theme = Some(theme_name.to_string());
+        let text = config.to_doc_toml();
+        fs::write(&path, text)
+            .map_err(|err| format!("failed to write config file '{}': {err}", path.display()))
     }
 
     /// Builds a [`Config`] snapshot from resolved CLI arguments.
