@@ -132,15 +132,52 @@ reinstall: fmt lint
 
     just post_install
 
-[arg('tag', help='the tag to show changelog for')]
+[arg('tag', help='git tag to create (vX.Y.Z); must match Cargo.toml version')]
 [doc('updates changelog and creats a new git tag')]
 [group('release')]
+[script]
 tag tag:
-    @git-cliff --offline --body="$(cat cliff_body.tera)" "$(git describe --tags --abbrev=0)..HEAD" --tag=$tag | cat - CHANGELOG.md | tee temp.md
-    @mv temp.md CHANGELOG.md
-    @git add CHANGELOG.md
-    @git commit -sm 'doc(changelog): update CHANGELOG.md'
-    @git tag $tag
+    set -eu
+
+    tag="{{tag}}"
+    case "$tag" in
+        v*.*.*) ;;
+        *)
+            echo "error: tag must be vX.Y.Z (got '$tag')" >&2
+            exit 1
+            ;;
+    esac
+
+    release_version="${tag#v}"
+    cargo_version="$(grep -m1 '^version = ' Cargo.toml | sed -E 's/^version = "(.*)"$/\1/')"
+
+    if [ "$release_version" != "$cargo_version" ]; then
+        echo "error: tag and package version do not match" >&2
+        echo "  tag:        $tag ($release_version)" >&2
+        echo "  Cargo.toml: $cargo_version" >&2
+        printf 'update Cargo.toml to %s and run just install? [y/N] ' "$release_version" >&2
+        read -r reply
+        case "$reply" in
+            y|Y|yes|Yes|YES)
+                sed -i "0,/^version = /s/^version = \"[^\"]*\"/version = \"${release_version}\"/" Cargo.toml
+                just nextest
+                ;;
+            *)
+                echo "aborted." >&2
+                exit 1
+                ;;
+        esac
+    else
+        just nextest
+    fi
+
+    new_changelog="$(git-cliff --offline --body="$(cat cliff_body.tera)" "$(git describe --tags --abbrev=0)..HEAD" --tag="$tag")"
+    echo "$new_changelog" | cat - CHANGELOG.md > temp.md
+    echo "$new_changelog"
+    mv temp.md CHANGELOG.md
+    git add CHANGELOG.md Cargo.lock Cargo.toml build/setup/setup.iss
+    git commit -sm "chore(release): $tag"
+    git tag "$tag"
 
 [arg('tag', help='the tag to show changelog for')]
 [doc('shows changelog for tag')]
