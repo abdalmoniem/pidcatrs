@@ -27,6 +27,32 @@ fmt:
 lint:
     @cargo clippy --workspace -- -D warnings
 
+[doc('Check that the JSON schemas are up to date')]
+[group('lint')]
+check-schema:
+    @cargo xtask schema --check
+
+[doc('Check that the bundled theme sources are up to date')]
+[group('lint')]
+check-themes:
+    @cargo xtask themes --check
+
+[doc('Generate the JSON schemas for the config and theme files')]
+[group('build')]
+generate-schema:
+    @cargo xtask schema --generate
+
+[arg('dir', help='directory with the theme files to bundle')]
+[doc('Add or replace bundled themes with documented copies of the theme files in dir')]
+[group('build')]
+import-themes dir:
+    @cargo xtask themes --import "$dir"
+
+[doc('Regenerate the documented bundled theme sources')]
+[group('build')]
+generate-themes:
+    @cargo xtask themes --generate
+
 [doc('Clean the build directory')]
 [group('build')]
 clean:
@@ -65,31 +91,10 @@ run args:
 run-release args:
     @cargo xtask run --profile=release -- $args
 
-[doc('Generate the JSON schemas for the config and theme files')]
-[group('build')]
-generate-schema:
-    @cargo xtask schema --generate
-
-[doc('Check that the JSON schemas are up to date')]
-[group('lint')]
-check-schema:
-    @cargo xtask schema --check
-
-[arg('dir', help='directory with the theme files to bundle')]
-[doc('Add or replace bundled themes with documented copies of the theme files in dir')]
-[group('build')]
-import-themes dir:
-    @cargo xtask themes --import "$dir"
-
-[doc('Regenerate the documented bundled theme sources')]
-[group('build')]
-generate-themes:
-    @cargo xtask themes --generate
-
-[doc('Check that the bundled theme sources are up to date')]
-[group('lint')]
-check-themes:
-    @cargo xtask themes --check
+[doc('Generate and open cargo docs for the project')]
+[group('doc')]
+doc:
+    @cargo doc --document-private-items --open
 
 [doc('Run all tests')]
 [group('test')]
