@@ -102,10 +102,16 @@ pub fn render(frame: &mut Frame, app: &mut TuiApp) {
         }
         Overlay::ThemePicker => {
             let area = centered_rect(50, 50, frame.area());
+            let theme_names = if app.theme_picker_tab == 0 {
+                &app.theme_names_light
+            } else {
+                &app.theme_names_dark
+            };
             render_theme_picker(
                 frame,
-                &app.theme_names,
+                theme_names,
                 &app.args.theme,
+                app.theme_picker_tab,
                 &mut app.theme_palette,
                 area,
             );

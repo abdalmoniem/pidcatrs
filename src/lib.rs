@@ -55,15 +55,21 @@ pub use config::theme::DEFAULT_THEME_NAME;
 pub use config::theme::LogColors;
 pub use config::theme::Rgb;
 pub use config::theme::Theme;
+/// Light/dark theme grouping for bundled paths and the TUI theme picker.
+pub use config::theme::ThemeCategory;
 pub use config::theme::ThemeFile;
 pub use config::theme::UiColors;
 pub use config::theme::active as active_theme;
 pub use config::theme::available_themes;
+/// Lists theme names in one category (`themes/light` or `themes/dark`).
+pub use config::theme::available_themes_for_category;
 pub use config::theme::install_bundled_themes;
 pub use config::theme::load_theme;
 pub use config::theme::parse_theme;
 pub use config::theme::render_theme_source;
 pub use config::theme::set_active as set_active_theme;
+/// Returns the light/dark category for a bundled or installed theme name.
+pub use config::theme::theme_category_for_name;
 
 pub use controller::adb::build_adb_command;
 pub use controller::adb::build_logcat_command;
