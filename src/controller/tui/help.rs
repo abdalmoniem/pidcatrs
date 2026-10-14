@@ -261,6 +261,12 @@ pub const HELP_CATALOG: &[HelpEntry] = &[
     },
     HelpEntry {
         section: "theme picker",
+        keys: "[ / ]",
+        description: "switch light / dark tab (wraps)",
+        action: None,
+    },
+    HelpEntry {
+        section: "theme picker",
         keys: "enter",
         description: "apply highlighted theme",
         action: None,
@@ -268,7 +274,7 @@ pub const HELP_CATALOG: &[HelpEntry] = &[
     HelpEntry {
         section: "theme picker",
         keys: "j / k / ↑ / ↓",
-        description: "move selection",
+        description: "preview highlighted theme",
         action: None,
     },
     HelpEntry {

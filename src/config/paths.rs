@@ -25,6 +25,8 @@ use etcetera::choose_base_strategy;
 /// File name of the main TOML configuration in [`config_dir`].
 pub const CONFIG_FILE_NAME: &str = "config.toml";
 /// Subdirectory name under [`config_dir`] where custom theme files are stored.
+///
+/// Bundled and custom themes live in `themes/light/` and `themes/dark/` beneath this directory.
 pub const THEMES_DIR_NAME: &str = "themes";
 
 /// Returns `$XDG_CONFIG_HOME/<pkg>` or `~/.config/<pkg>` on Linux and macOS, `%APPDATA%\<pkg>` on Windows.

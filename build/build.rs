@@ -21,7 +21,7 @@
 //! # Responsibilities
 //!
 //! - Registers `cargo:rerun-if-changed` for `Cargo.toml`, `resources.rc`, the Inno Setup script,
-//!   and bundled theme sources under `src/config/themes`.
+//!   and bundled theme sources under `src/config/themes/light` and `src/config/themes/dark`.
 //! - Writes `$OUT_DIR/bundled_themes.rs`, a `BUNDLED_THEMES` table that embeds each
 //!   `*.toml` theme via [`include_str!`].
 //! - Updates `#define AppVersion` in `build/setup/setup.iss` when the package version changes.
@@ -48,9 +48,9 @@ use std::process;
 /// Follows the same calling semantics as [std::println!]. Messages are prefixed with
 /// **`INFO:`** in **`green`**.
 macro_rules! info {
-    ($($arg:tt)+) => {
-        custom_println!("INFO:", green, $($arg)+)
-    }
+    ($($arg:tt)+) => {{
+        custom_println!("INFO:", green, $($arg)+);
+    }}
 }
 
 /// Can be used to print warning messages during a build script.
@@ -58,9 +58,9 @@ macro_rules! info {
 /// Follows the same calling semantics as [std::println!]. Messages are prefixed with
 /// **`WARNING:`** in **`yellow`**.
 macro_rules! warn {
-    ($($arg:tt)+) => {
-        custom_println!("WARN:", yellow, $($arg)+)
-    }
+    ($($arg:tt)+) => {{
+        custom_println!("WARN:", yellow, $($arg)+);
+    }}
 }
 
 /// Can be used to print error messages during a build script without aborting the build.
@@ -68,9 +68,9 @@ macro_rules! warn {
 /// Follows the same calling semantics as [std::println!]. Messages are prefixed with
 /// **`ERROR:`** in **`red`**.
 macro_rules! error {
-    ($($arg:tt)+) => {
-        custom_println!("ERROR:", red, $($arg)+)
-    }
+    ($($arg:tt)+) => {{
+        custom_println!("ERROR:", red, $($arg)+);
+    }}
 }
 
 /// Can be used to print note messages during a build script.
@@ -78,9 +78,9 @@ macro_rules! error {
 /// Follows the same calling semantics as [std::println!]. Messages are prefixed with
 /// **`NOTE:`** in **`cyan`**.
 macro_rules! note {
-    ($($arg:tt)+) => {
-        custom_println!("NOTE:", cyan, $($arg)+)
-    }
+    ($($arg:tt)+) => {{
+        custom_println!("NOTE:", cyan, $($arg)+);
+    }}
 }
 
 /// The main entry point for the build script.

@@ -162,8 +162,8 @@ struct ValueOption {
 }
 
 /// Writes the clap-generated completion script for `shell`, with `--theme` values completed
-/// from `<bin> --list-themes` at completion time, so themes added to the themes directory show
-/// up without regenerating the script. Elvish and PowerShell scripts also get the possible
+/// from `<bin> --list-themes` at completion time, so themes added under `themes/light/` or
+/// `themes/dark/` show up without regenerating the script. Elvish and PowerShell scripts also get the possible
 /// values and file paths of every other option, which the other shells already complete.
 pub fn write_completions(
     shell: Shell,

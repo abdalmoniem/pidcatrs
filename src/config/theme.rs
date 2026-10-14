@@ -16,6 +16,12 @@
 #![deny(clippy::unwrap_used)]
 
 //! Color theme TOML format, bundled themes, resolution to [`Rgb`], and runtime activation.
+//!
+//! Bundled sources live under `src/config/themes/light` and `src/config/themes/dark` at
+//! build time; at runtime [`install_bundled_themes`] mirrors that layout under the user
+//! [`themes_dir`](super::paths::themes_dir) (`themes/light/` and `themes/dark/`). Theme
+//! names stay flat (for example `gruber-darker`); category is inferred from path or from
+//! [`BundledTheme::category`].
 
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -23,6 +29,7 @@ use std::fmt::Result as FmtResult;
 use std::fs;
 use std::path::MAIN_SEPARATOR;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::RwLock;
@@ -51,6 +58,72 @@ use theme_macros::get_bundled_themes;
 
 /// Default bundled theme used when none is configured.
 pub const DEFAULT_THEME_NAME: &str = "gruber-darker";
+/// Bundled theme category directory name under the themes root.
+pub const THEME_CATEGORY_LIGHT: &str = "light";
+/// Bundled theme category directory name under the themes root.
+pub const THEME_CATEGORY_DARK: &str = "dark";
+
+/// Light or dark theme group used for bundled layout and the TUI theme picker tabs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ThemeCategory {
+    /// Themes with a light UI background.
+    Light,
+    /// Themes with a dark UI background.
+    Dark,
+}
+
+impl ThemeCategory {
+    /// Directory name under the themes root (`light` or `dark`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Light => THEME_CATEGORY_LIGHT,
+            Self::Dark => THEME_CATEGORY_DARK,
+        }
+    }
+
+    /// Tab index in the theme picker (`0` = light, `1` = dark).
+    pub fn tab_index(self) -> usize {
+        match self {
+            Self::Light => 0,
+            Self::Dark => 1,
+        }
+    }
+
+    /// Parses a category directory name (`light` or `dark`).
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Subdirectory name under the themes root.
+    ///
+    /// # Returns
+    ///
+    /// The matching category, or `None` for other names.
+    pub fn parse_dir(name: &str) -> Option<Self> {
+        match name {
+            THEME_CATEGORY_LIGHT => Some(Self::Light),
+            THEME_CATEGORY_DARK => Some(Self::Dark),
+            _ => None,
+        }
+    }
+
+    /// Maps a theme picker tab index to a category.
+    ///
+    /// Index `0` is [`Self::Light`]; any other index is treated as [`Self::Dark`].
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - Tab index from the theme picker (`0` or `1`).
+    pub fn from_tab_index(index: usize) -> Self {
+        if index == 0 { Self::Light } else { Self::Dark }
+    }
+
+    /// Number of theme picker tabs (light and dark).
+    pub const TAB_COUNT: usize = 2;
+
+    /// All categories in tab order (light, then dark).
+    pub const ALL: [Self; 2] = [Self::Light, Self::Dark];
+}
+
 /// One embedded theme shipped with the binary.
 ///
 /// `source` must equal its `render_theme_source()` output: the schema directive and blank `#`
@@ -58,11 +131,13 @@ pub const DEFAULT_THEME_NAME: &str = "gruber-darker";
 pub struct BundledTheme {
     /// Bundled theme identifier.
     pub name: &'static str,
+    /// Category directory (`light` or `dark`).
+    pub category: &'static str,
     /// Full documented theme TOML source text.
     pub source: &'static str,
 }
 
-/// Generated at build time from `themes/*.toml`, contains all the theme names and their paths
+/// Generated at build time from `themes/light` and `themes/dark`.
 pub const BUNDLED_THEMES: &[BundledTheme] = get_bundled_themes!("src/config/themes");
 
 /// Holds the active theme; updated at startup and when the user picks a new theme in the TUI.
@@ -73,6 +148,16 @@ impl BundledTheme {
     /// Returns the theme file name `{name}.toml`.
     pub fn file_name(&self) -> String {
         format!("{name}.toml", name = self.name)
+    }
+
+    /// Relative path under the themes root (`light/name.toml` or `dark/name.toml`).
+    pub fn relative_path(&self) -> String {
+        format!("{}/{}", self.category, self.file_name())
+    }
+
+    /// Parsed category of this bundled theme.
+    pub fn theme_category(&self) -> ThemeCategory {
+        ThemeCategory::parse_dir(self.category).unwrap_or(ThemeCategory::Dark)
     }
 }
 
@@ -692,8 +777,9 @@ pub fn set_active(theme: Theme) {
     }
 }
 
-/// Writes each bundled theme that is missing from the themes directory or whose
-/// file is an outdated rendering of it; failures are ignored so a read-only home
+/// Writes each bundled theme into `themes/light/` or `themes/dark/` when missing or outdated.
+///
+/// Paths match [`BundledTheme::relative_path`]. Failures are ignored so a read-only home
 /// still works.
 pub fn install_bundled_themes() {
     let Some(dir) = themes_dir() else {
@@ -705,7 +791,12 @@ pub fn install_bundled_themes() {
     }
 
     for bundled in BUNDLED_THEMES {
-        let path = dir.join(bundled.file_name());
+        let path = dir.join(bundled.relative_path());
+        if let Some(parent) = path.parent()
+            && fs::create_dir_all(parent).is_err()
+        {
+            continue;
+        }
         let unedited = |existing: &str| {
             parse_theme(existing).is_ok_and(|existing| parse_theme(bundled.source) == Ok(existing))
         };
@@ -726,10 +817,10 @@ pub fn install_bundled_themes() {
     }
 }
 
-/// Returns bundled and installed custom theme names, sorted and deduplicated.
-pub fn available_themes() -> Vec<String> {
-    let installed = themes_dir()
-        .and_then(|dir| fs::read_dir(dir).ok())
+/// Lists theme file stems in `dir` (non-recursive; expects `*.toml` only).
+fn theme_names_in_dir(dir: &Path) -> Vec<String> {
+    fs::read_dir(dir)
+        .ok()
         .into_iter()
         .flatten()
         .flatten()
@@ -738,15 +829,96 @@ pub fn available_themes() -> Vec<String> {
         .filter_map(|path| {
             path.file_stem()
                 .map(|stem| stem.to_string_lossy().to_string())
-        });
+        })
+        .collect()
+}
 
-    BUNDLED_THEMES
+/// Returns bundled and installed theme names for one category, sorted and deduplicated.
+///
+/// Bundled names come from compile-time embedding; installed names are read from
+/// `{themes_dir}/{light|dark}/*.toml`.
+///
+/// # Arguments
+///
+/// * `category` - Light or dark group to list.
+///
+/// # Returns
+///
+/// Theme names (file stems without `.toml`), sorted and deduplicated.
+pub fn available_themes_for_category(category: ThemeCategory) -> Vec<String> {
+    let category_name = category.as_str();
+    let bundled = BUNDLED_THEMES
         .iter()
-        .map(|bundled| bundled.name.to_string())
-        .chain(installed)
+        .filter(|theme| theme.category == category_name)
+        .map(|theme| theme.name.to_string());
+
+    let installed = themes_dir()
+        .map(|dir| dir.join(category_name))
+        .filter(|dir| dir.is_dir())
+        .map(|dir| theme_names_in_dir(&dir))
+        .unwrap_or_default();
+
+    bundled.chain(installed).sorted().dedup().collect()
+}
+
+/// Returns the category of a theme name when it is bundled or installed under `themes/`.
+///
+/// Checks embedded [`BUNDLED_THEMES`] first, then `themes/light/{name}.toml` and
+/// `themes/dark/{name}.toml` in the user config directory.
+///
+/// # Arguments
+///
+/// * `name` - Theme file stem (not a path).
+///
+/// # Returns
+///
+/// The category when known; `None` if the name is not bundled and not installed.
+pub fn theme_category_for_name(name: &str) -> Option<ThemeCategory> {
+    if let Some(bundled) = bundled_theme(name) {
+        return Some(bundled.theme_category());
+    }
+
+    let dir = themes_dir()?;
+    for category in [ThemeCategory::Light, ThemeCategory::Dark] {
+        let path = dir.join(category.as_str()).join(format!("{name}.toml"));
+        if path.is_file() {
+            return Some(category);
+        }
+    }
+
+    None
+}
+
+/// Returns all bundled and installed theme names (both categories), sorted and deduplicated.
+///
+/// Used by `--list-themes` and shell completion. For the TUI picker, prefer
+/// [`available_themes_for_category`].
+pub fn available_themes() -> Vec<String> {
+    available_themes_for_category(ThemeCategory::Light)
+        .into_iter()
+        .chain(available_themes_for_category(ThemeCategory::Dark))
         .sorted()
         .dedup()
         .collect()
+}
+
+/// Resolves a theme name to an installed file under `base`.
+///
+/// Looks in `base/light/` and `base/dark/`, then falls back to legacy `base/{name}.toml`.
+fn installed_theme_path(base: &Path, name: &str) -> Option<PathBuf> {
+    for category in [ThemeCategory::Light, ThemeCategory::Dark] {
+        let path = base.join(category.as_str()).join(format!("{name}.toml"));
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    let legacy = base.join(format!("{name}.toml"));
+    if legacy.is_file() {
+        return Some(legacy);
+    }
+
+    None
 }
 
 /// Returns whether `spec` should be treated as a file path.
@@ -790,8 +962,8 @@ pub fn load_theme(spec: &str) -> Result<(ThemeFile, Theme), String> {
         };
     }
 
-    if let Some(path) = themes_dir().map(|dir| dir.join(format!("{spec}.toml")))
-        && path.is_file()
+    if let Some(dir) = themes_dir()
+        && let Some(path) = installed_theme_path(&dir, spec)
     {
         return read_theme_file(&path);
     }
@@ -1013,20 +1185,22 @@ impl ThemeFile {
         let header = [
             format!("{pkg} color theme"),
             String::default(),
-            "Themes directory: `themes` next to the config file; its full path is shown"
+            "Themes directory: `themes` next to the config file (with `light/` and `dark/`"
                 .to_string(),
-            format!("under --theme in: {pkg} --help"),
+            "subdirectories); its full path is shown under --theme in:".to_string(),
+            format!("{pkg} --help"),
             format!("Select a theme with: {pkg} --theme <NAME|PATH>"),
-            "or with `theme = \"<NAME|PATH>\"` in the config file. NAME is a file name in"
+            "or with `theme = \"<NAME|PATH>\"` in the config file. NAME is a file stem in"
                 .to_string(),
-            "the themes directory without the .toml extension; PATH is a theme file path."
+            "`themes/light/` or `themes/dark/` without the .toml extension; PATH is a theme file."
                 .to_string(),
             format!("Print the active theme with: {pkg} --print-theme"),
             format!(
                 "Export a theme for editing with: {pkg} --theme <NAME> --print-theme > my-theme.toml"
             ),
             String::default(),
-            "The bundled themes are written to the themes directory when missing, and".to_string(),
+            "Bundled themes are written to `themes/light/` or `themes/dark/` when missing, and"
+                .to_string(),
             "their comments are refreshed while their colors are unchanged. Edited themes".to_string(),
             "are never overwritten; delete a file to restore its bundled version.".to_string(),
             String::default(),

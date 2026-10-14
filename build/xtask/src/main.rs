@@ -251,23 +251,48 @@ fn schema(check: bool) -> Result<()> {
     }
 }
 
-/// The `.toml` theme files in [dir], sorted by name
-fn theme_files(dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut files = read_dir(dir)
-        .with_context(|| format!("failed to read {dir:?}!"))?
-        .map(|entry| entry.map(|entry| entry.path()))
-        .collect::<Result<Vec<_>, _>>()
-        .with_context(|| format!("failed to read {dir:?}!"))?
-        .into_iter()
-        .filter(|path| path.extension().is_some_and(|ext| ext == "toml"))
-        .collect::<Vec<_>>();
-    files.sort();
+/// Bundled theme subdirectory names under `src/config/themes`.
+const THEME_CATEGORIES: &[&str] = &["light", "dark"];
 
+/// Lists every `.toml` theme file under `dir/light` and `dir/dark`.
+///
+/// # Arguments
+///
+/// * `dir` - Themes root (typically `src/config/themes`, or an import tree with the same layout).
+///
+/// # Returns
+///
+/// Full paths sorted lexicographically (light themes before dark when names overlap).
+fn theme_files(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+
+    for category in THEME_CATEGORIES {
+        let category_dir = dir.join(category);
+        let mut category_files = read_dir(&category_dir)
+            .with_context(|| format!("failed to read {category_dir:?}!"))?
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<Result<Vec<_>, _>>()
+            .with_context(|| format!("failed to read {category_dir:?}!"))?
+            .into_iter()
+            .filter(|path| path.extension().is_some_and(|ext| ext == "toml"))
+            .collect::<Vec<_>>();
+        files.append(&mut category_files);
+    }
+
+    files.sort();
     Ok(files)
 }
 
-/// Write or check the documented bundled theme sources embedded in the binary, rendering
-/// each from the bundled source itself or, when importing, from the imported theme file
+/// Writes or checks documented bundled theme sources under `src/config/themes/{light,dark}/`.
+///
+/// When `import_dir` is set, reads the same layout from that directory and renders each file
+/// into the repo tree, preserving the category subdirectory from the source path.
+///
+/// # Arguments
+///
+/// * `generate` - When true with `check` false, rewrite outdated theme files.
+/// * `check` - When true, fail if any bundled file differs from rendered output.
+/// * `import_dir` - Optional source tree (`light/` and `dark/` subdirectories) for `--import`.
 fn themes(generate: bool, check: bool, import_dir: Option<PathBuf>) -> Result<()> {
     match (check, &import_dir) {
         (true, _) => status(">> Checking bundled themes..."),
@@ -287,7 +312,15 @@ fn themes(generate: bool, check: bool, import_dir: Option<PathBuf>) -> Result<()
             let file_name = source_path
                 .file_name()
                 .with_context(|| format!("invalid theme file name {source_path:?}!"))?;
-            let path = themes_dir.join(file_name);
+            let category = source_path
+                .parent()
+                .and_then(|parent| parent.file_name())
+                .and_then(|name| name.to_str())
+                .with_context(|| format!("invalid theme category for {source_path:?}!"))?;
+            let path = themes_dir.join(category).join(file_name);
+            if let Some(parent) = path.parent() {
+                create_dir_all(parent).with_context(|| format!("failed to create {parent:?}!"))?;
+            }
             let source = read_to_string(source_path)
                 .with_context(|| format!("failed to read {source_path:?}!"))?;
             let rendered = render_theme_source(&source)

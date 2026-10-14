@@ -54,8 +54,9 @@ use crate::CliArgs;
 use crate::Config;
 use crate::LogEntry;
 use crate::State;
+use crate::ThemeCategory;
 use crate::ValueOrPanic;
-use crate::available_themes;
+use crate::available_themes_for_category;
 use crate::build_adb_command;
 use crate::controller::terminal::register_tui_color_override;
 use crate::controller::terminal::register_tui_mouse_capture;
@@ -67,6 +68,7 @@ use crate::model::filter_engine::EffectiveFilter;
 use crate::resolve_initial_device;
 use crate::set_active_theme;
 use crate::set_running;
+use crate::theme_category_for_name;
 
 use crate::controller::setup::bootstrap_adb_tui;
 use crate::controller::setup::build_state;
@@ -169,7 +171,7 @@ pub enum Overlay {
     CopyMenu,
     /// The "export format" menu.
     ExportFormat,
-    /// The "change theme" dialog.
+    /// The "change theme" dialog (light/dark tabs, filter, live preview).
     ThemePicker,
 }
 
@@ -236,8 +238,12 @@ pub struct TuiApp {
     pub device_palette: PaletteSearch,
     /// Search/selection state of the theme picker.
     pub theme_palette: PaletteSearch,
-    /// Theme names shown in the theme picker (refreshed when it opens).
-    pub theme_names: Vec<String>,
+    /// Light theme names for the theme picker (refreshed in [`Self::open_theme_picker`]).
+    pub theme_names_light: Vec<String>,
+    /// Dark theme names for the theme picker (refreshed in [`Self::open_theme_picker`]).
+    pub theme_names_dark: Vec<String>,
+    /// Active theme picker tab index ([`ThemeCategory::Light`] = `0`, [`ThemeCategory::Dark`] = `1`).
+    pub theme_picker_tab: usize,
     /// File explorer of the open file dialog (`Some` while it is open).
     pub file_explorer: Option<FileExplorer>,
     /// Error displayed inside the file dialog, if any.
@@ -368,7 +374,9 @@ impl TuiApp {
             help_palette: PaletteSearch::default(),
             device_palette: PaletteSearch::default(),
             theme_palette: PaletteSearch::default(),
-            theme_names: Vec::default(),
+            theme_names_light: Vec::default(),
+            theme_names_dark: Vec::default(),
+            theme_picker_tab: ThemeCategory::Dark.tab_index(),
             file_explorer: None,
             file_open_error: None,
             file_path_input: PaletteSearch::default(),
@@ -718,26 +726,59 @@ impl TuiApp {
         self.overlay = Overlay::DevicePicker;
     }
 
-    /// Opens the theme picker with the current list of available themes.
+    /// Theme name list for the currently selected light/dark tab in the picker.
+    fn theme_picker_names(&self) -> &[String] {
+        if self.theme_picker_tab == ThemeCategory::Light.tab_index() {
+            &self.theme_names_light
+        } else {
+            &self.theme_names_dark
+        }
+    }
+
+    /// Opens the theme picker with light and dark theme lists and live preview enabled.
+    ///
+    /// Selects the tab that contains the current [`Self::args`]`::theme` when known,
+    /// otherwise the dark tab. Resets search state and scrolls the active theme into view.
     fn open_theme_picker(&mut self) {
         self.exit_select_mode();
-        self.theme_names = available_themes();
+        self.theme_names_light = available_themes_for_category(ThemeCategory::Light);
+        self.theme_names_dark = available_themes_for_category(ThemeCategory::Dark);
+        self.theme_picker_tab = theme_category_for_name(&self.args.theme)
+            .unwrap_or(ThemeCategory::Dark)
+            .tab_index();
         self.theme_palette.reset();
         self.select_active_theme_in_palette();
         self.overlay = Overlay::ThemePicker;
     }
 
-    /// Highlights the active theme in the theme picker and scrolls it into view.
+    /// Switches the theme picker light/dark tab, wrapping at the ends.
+    ///
+    /// `[` / `]` (handled in [`Self::handle_theme_picker_key`]) pass `delta` `-1` or `1`.
+    /// Resets list selection to the first row, re-selects the persisted theme when it
+    /// appears in the new tab, and applies a live preview when possible.
+    ///
+    /// # Arguments
+    ///
+    /// * `delta` - Tab direction (`-1` = previous tab, `1` = next tab).
+    fn switch_theme_picker_tab(&mut self, delta: i32) {
+        let count = ThemeCategory::TAB_COUNT as i32;
+        let next = (self.theme_picker_tab as i32 + delta).rem_euclid(count);
+        self.theme_picker_tab = next as usize;
+        self.theme_palette.select_first(0);
+        self.select_active_theme_in_palette();
+        self.preview_theme_picker();
+    }
+
+    /// Highlights [`Self::args`]`::theme` in the filtered list and scrolls it into view.
+    ///
+    /// When the persisted theme is absent from the current tab/filter, row `0` is selected.
     fn select_active_theme_in_palette(&mut self) {
-        let filtered = filter_theme_indices(&self.theme_names, &self.theme_palette.query);
+        let theme_names = self.theme_picker_names();
+        let filtered = filter_theme_indices(theme_names, &self.theme_palette.query);
         let current = self.args.theme.as_str();
         let selected = filtered
             .iter()
-            .position(|&index| {
-                self.theme_names
-                    .get(index)
-                    .is_some_and(|name| name == current)
-            })
+            .position(|&index| theme_names.get(index).is_some_and(|name| name == current))
             .unwrap_or(0);
         self.theme_palette.selected = selected;
         self.theme_palette.clamp_selection(filtered.len());
@@ -749,11 +790,12 @@ impl TuiApp {
 
     /// Applies the highlighted theme, persists it to config, and closes the dialog.
     fn confirm_theme_picker(&mut self) {
-        let filtered = filter_theme_indices(&self.theme_names, &self.theme_palette.query);
+        let theme_names = self.theme_picker_names().to_vec();
+        let filtered = filter_theme_indices(&theme_names, &self.theme_palette.query);
         let Some(&theme_index) = filtered.get(self.theme_palette.selected) else {
             return;
         };
-        let Some(name) = self.theme_names.get(theme_index).cloned() else {
+        let Some(name) = theme_names.get(theme_index).cloned() else {
             return;
         };
 
@@ -779,6 +821,44 @@ impl TuiApp {
                 self.status_feedback = Some(message);
                 self.status_feedback_is_error = true;
             }
+        }
+    }
+
+    /// Applies the highlighted theme as a live preview without persisting it.
+    ///
+    /// Called whenever the theme picker's selection changes so the whole UI
+    /// reflects the highlighted theme immediately. [`Self::args`]`::theme` is
+    /// intentionally left untouched so the choice can be reverted on `Esc` and
+    /// only becomes permanent on `Enter`. Failures are ignored here; a broken
+    /// theme is reported when the user tries to confirm it.
+    fn preview_theme_picker(&mut self) {
+        let theme_names = self.theme_picker_names();
+        let filtered = filter_theme_indices(theme_names, &self.theme_palette.query);
+        let Some(&theme_index) = filtered.get(self.theme_palette.selected) else {
+            return;
+        };
+        let Some(name) = theme_names.get(theme_index) else {
+            return;
+        };
+
+        if let Ok((_file, theme)) = load_theme(name) {
+            set_active_theme(theme);
+            self.explorer_theme = theme::explorer_theme();
+            self.display_cache.invalidate();
+        }
+    }
+
+    /// Restores the theme that was active before the picker was opened.
+    ///
+    /// Called when the picker is dismissed with `Esc`, undoing any live
+    /// preview applied while navigating the list. The theme to restore is the
+    /// one recorded in [`Self::args`]`::theme`, which previews never modify.
+    fn revert_theme_picker(&mut self) {
+        let original = self.args.theme.clone();
+        if let Ok((_file, theme)) = load_theme(&original) {
+            set_active_theme(theme);
+            self.explorer_theme = theme::explorer_theme();
+            self.display_cache.invalidate();
         }
     }
 
@@ -1628,13 +1708,18 @@ impl TuiApp {
                 }
             }
             Overlay::ThemePicker => {
-                let filtered = filter_theme_indices(&self.theme_names, &self.theme_palette.query);
+                let theme_names = self.theme_picker_names();
+                let filtered = filter_theme_indices(theme_names, &self.theme_palette.query);
+                let previous = self.theme_palette.selected;
                 for _ in 0..3 {
                     self.theme_palette.move_selection(
                         filtered.len(),
                         if scroll_up { -1 } else { 1 },
                         |_| true,
                     );
+                }
+                if self.theme_palette.selected != previous {
+                    self.preview_theme_picker();
                 }
             }
             Overlay::None if !self.filter_focused => {
@@ -1692,8 +1777,24 @@ impl TuiApp {
     }
 
     /// Handles a key press while the theme picker is open.
+    ///
+    /// `[` / `]` switch the light/dark tab (with wrap). Navigation (`↑`/`↓`, `j`/`k`, page
+    /// keys) previews the highlighted theme live without persisting it; `Enter` applies and
+    /// saves the highlighted theme; `Esc` reverts to the theme that was active before the
+    /// picker was opened.
     fn handle_theme_picker_key(&mut self, key: KeyCode, modifiers: KeyModifiers) {
-        let filtered = filter_theme_indices(&self.theme_names, &self.theme_palette.query);
+        if key == KeyCode::Char('[') && !modifiers.contains(KeyModifiers::CONTROL) {
+            self.switch_theme_picker_tab(-1);
+            return;
+        }
+        if key == KeyCode::Char(']') && !modifiers.contains(KeyModifiers::CONTROL) {
+            self.switch_theme_picker_tab(1);
+            return;
+        }
+
+        let theme_names = self.theme_picker_names();
+        let filtered = filter_theme_indices(theme_names, &self.theme_palette.query);
+        let previous = self.theme_palette.selected;
         let action = handle_palette_key(
             &mut self.theme_palette,
             key,
@@ -1704,9 +1805,16 @@ impl TuiApp {
 
         match action {
             PaletteKeyAction::Enter => self.confirm_theme_picker(),
-            PaletteKeyAction::Close => self.overlay = Overlay::None,
+            PaletteKeyAction::Close => {
+                self.revert_theme_picker();
+                self.overlay = Overlay::None;
+            }
             PaletteKeyAction::ClearSearch | PaletteKeyAction::QueryChanged => {
                 self.select_active_theme_in_palette();
+                self.preview_theme_picker();
+            }
+            PaletteKeyAction::None if self.theme_palette.selected != previous => {
+                self.preview_theme_picker();
             }
             PaletteKeyAction::None => {}
         }

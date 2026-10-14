@@ -79,6 +79,7 @@ pub fn hex_color_map_schema(_: &mut SchemaGenerator) -> Schema {
 
 /// JSON Schema for the `theme` config key: bundled names plus any custom name or path string.
 ///
+/// The enum lists every embedded theme name (from `themes/light` and `themes/dark` sources).
 /// `anyOf` keeps a top-level-style `enum` for editor completion while a plain `string` branch
 /// accepts custom names and paths. (`oneOf` fails on bundled names because both branches match.)
 pub fn theme_name_schema(_: &mut SchemaGenerator) -> Schema {
