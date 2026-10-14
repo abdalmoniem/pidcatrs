@@ -1,3 +1,28 @@
+# [2.1.0] - Wed, 14/Oct/2026
+## 🚀 Features
+- ([37265c](https://github.com/abdalmoniem/pidcatrs/commit/37265c)) **(tui)** Add filter-token highlighting
+- ([61c762](https://github.com/abdalmoniem/pidcatrs/commit/61c762)) **(filter)** Add logcat-style query engine and live filter
+- ([21c397](https://github.com/abdalmoniem/pidcatrs/commit/21c397)) **(tui)** Add word movement and editing shortcuts to filter bar
+- ([5c30e4](https://github.com/abdalmoniem/pidcatrs/commit/5c30e4)) **(tui)** Add interactive theme picker overlay
+- ([5922ec](https://github.com/abdalmoniem/pidcatrs/commit/5922ec)) **(theme)** Organize themes into light and dark categories
+
+## ♻️ Refactors
+- ([64743a](https://github.com/abdalmoniem/pidcatrs/commit/64743a)) **(theme)** Use macro for bundled themes
+- ([285ffb](https://github.com/abdalmoniem/pidcatrs/commit/285ffb)) **(tui)** Improve wrapped message highlighting
+- ([86104c](https://github.com/abdalmoniem/pidcatrs/commit/86104c)) **(filter)** Use thiserror for ParseError
+- ([5ca37b](https://github.com/abdalmoniem/pidcatrs/commit/5ca37b)) **(tui)** Standardize keybinding notation
+- ([088149](https://github.com/abdalmoniem/pidcatrs/commit/088149)) **(build)** Replace theme proc-macro with build script
+
+## 📚 Documentation
+- ([8ed31a](https://github.com/abdalmoniem/pidcatrs/commit/8ed31a)) **(filter)** Document filter engine & README
+
+## 🛠️ Maintenance
+- ([ee923a](https://github.com/abdalmoniem/pidcatrs/commit/ee923a)) **(justfile)** Reorganize recipes and add doc command
+- ([cec9f4](https://github.com/abdalmoniem/pidcatrs/commit/cec9f4)) **(release)** Add version validation to release tag recipe
+
+**Full Changelog**: [v2.0.0...v2.1.0](https://github.com/abdalmoniem/pidcatrs/compare/v2.0.0...v2.1.0)
+
+---
 # [2.0.0] - Fri, 09/Oct/2026
 ## 🚀 Features
 - ([38b5cc](https://github.com/abdalmoniem/pidcatrs/commit/38b5cc)) **(log format)** Added configureable input log formats
