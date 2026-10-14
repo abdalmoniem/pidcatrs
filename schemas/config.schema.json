@@ -394,7 +394,7 @@
           "minLength": 1
         }
       ],
-      "description": "Color theme of the TUI and of the log output (also in plain mode).\nUse a bundled theme name (see the JSON schema enum), a custom theme file name\nin the `themes` directory next to the default config file (without the .toml\nextension), or a path to a theme file. A value containing a path separator or\nending in .toml is a path; relative paths are resolved from the current\ndirectory. Bundled themes are written to the themes directory when missing.\ntype: string (bundled name, custom name, or file path)\ndefault: \"gruber-darker\"\ncommand line: --theme <THEME>\nexample: theme = \"monokai\""
+      "description": "Color theme of the TUI and of the log output (also in plain mode).\nUse a bundled theme name (see the JSON schema enum), a custom theme file name\nin `themes/light/` or `themes/dark/` next to the default config file (stem\nwithout .toml), or a path to a theme file. A value containing a path separator\nor ending in .toml is a path; relative paths are resolved from the current\ndirectory. Bundled themes are written under `themes/light/` or `themes/dark/` when missing.\ntype: string (bundled name, custom name, or file path)\ndefault: \"gruber-darker\"\ncommand line: --theme <THEME>\nexample: theme = \"monokai\""
     }
   },
   "title": "pidcatrs configuration",

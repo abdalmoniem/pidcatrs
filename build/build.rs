@@ -22,7 +22,7 @@
 //!
 //! - Registers `cargo:rerun-if-changed` for `Cargo.toml`, `resources.rc`, the Inno Setup script,
 //!   and bundled theme sources under `src/config/themes/light` and `src/config/themes/dark`.
-//! - Writes `$OUT_DIR/bundled_themes.rs`, a `BUNDLED_THEMES` table that embeds each
+//! - Writes `$OUT_DIR/bundled_themes.inc.rs`, a `&[BundledTheme]` literal that embeds each
 //!   `*.toml` theme via [`include_str!`].
 //! - Updates `#define AppVersion` in `build/setup/setup.iss` when the package version changes.
 //! - Compiles Windows resource data from `resources.rc` with [`embed_resource`] (optional manifest).
@@ -34,14 +34,65 @@ use build_print::custom_println;
 use scope_functions::Apply;
 use scope_functions::Run;
 
+use std::fs::read_dir;
 use std::fs::read_to_string;
 use std::fs::write;
 
 use std::io::Error;
 use std::io::ErrorKind;
 
+use std::path::Path;
+use std::path::PathBuf;
+
 use std::panic;
 use std::process;
+
+const THEMES_ROOT: &str = "src/config/themes";
+const THEME_CATEGORIES: &[&str] = &["light", "dark"];
+
+/// Writes `$OUT_DIR/bundled_themes.inc.rs` for [`include!`] from [`theme`].
+fn write_bundled_themes(out_dir: &Path) {
+    let manifest_dir =
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set"));
+    let themes_root = manifest_dir.join(THEMES_ROOT);
+    let mut entries = Vec::new();
+
+    for category in THEME_CATEGORIES {
+        let category_dir = themes_root.join(category);
+        println!("cargo:rerun-if-changed={}", category_dir.display());
+
+        let mut theme_files = read_dir(&category_dir)
+            .unwrap_or_else(|err| panic!("Failed to read {}: {err}", category_dir.display()))
+            .filter_map(|entry| entry.ok().map(|e| e.path()))
+            .filter(|path| path.extension().is_some_and(|ext| ext == "toml"))
+            .collect::<Vec<_>>();
+
+        theme_files.sort();
+
+        for path in theme_files {
+            let name = path
+                .file_stem()
+                .unwrap_or_else(|| panic!("Invalid theme file name: {path:?}"))
+                .to_string_lossy()
+                .into_owned();
+
+            let rel = path
+                .strip_prefix(&manifest_dir)
+                .unwrap_or_else(|_| panic!("Theme path outside manifest dir: {path:?}"))
+                .to_string_lossy()
+                .replace('\\', "/");
+
+            entries.push(format!(
+                "    BundledTheme {{\n        name: \"{name}\",\n        category: \"{category}\",\n        source: include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/{rel}\")),\n    }}"
+            ));
+        }
+    }
+
+    let body = format!("&[\n{}\n]", entries.join(",\n"));
+    let out_path = out_dir.join("bundled_themes.inc.rs");
+    write(&out_path, body)
+        .unwrap_or_else(|err| panic!("Failed to write {}: {err}", out_path.display()));
+}
 
 /// Can be used to print info messages during a build script.
 ///
@@ -133,6 +184,9 @@ fn main() {
     println!("cargo:rerun-if-changed={SETUP_PATH}");
 
     info!("CARGO_PKG_VERSION: {VERSION}");
+
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR is not set"));
+    write_bundled_themes(&out_dir);
 
     match read_to_string(SETUP_PATH) {
         Ok(content) => {

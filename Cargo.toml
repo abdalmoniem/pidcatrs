@@ -38,7 +38,6 @@ strip-ansi-escapes = "0.2.1"
 terminal-clipboard = "0.4.1"
 clap = { version = "4.5.60", features = ["derive"] }
 serde = { version = "1.0.229", features = ["derive"] }
-theme-macros = { version = "0.1.0", path = "theme-macros" }
 toml = { version = "1.1.6", features = ["preserve_order"] }
 crossterm = { version = "0.29", features = ["event-stream"] }
 schemars = { version = "1.2.2", features = ["preserve_order"] }

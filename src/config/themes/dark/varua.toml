@@ -5,15 +5,16 @@
 #
 # pidcatrs color theme
 #
-# Themes directory: `themes` next to the config file; its full path is shown
-# under --theme in: pidcatrs --help
+# Themes directory: `themes` next to the config file (with `light/` and `dark/`
+# subdirectories); its full path is shown under --theme in:
+# pidcatrs --help
 # Select a theme with: pidcatrs --theme <NAME|PATH>
-# or with `theme = "<NAME|PATH>"` in the config file. NAME is a file name in
-# the themes directory without the .toml extension; PATH is a theme file path.
+# or with `theme = "<NAME|PATH>"` in the config file. NAME is a file stem in
+# `themes/light/` or `themes/dark/` without the .toml extension; PATH is a theme file.
 # Print the active theme with: pidcatrs --print-theme
 # Export a theme for editing with: pidcatrs --theme <NAME> --print-theme > my-theme.toml
 #
-# The bundled themes are written to the themes directory when missing, and
+# Bundled themes are written to `themes/light/` or `themes/dark/` when missing, and
 # their comments are refreshed while their colors are unchanged. Edited themes
 # are never overwritten; delete a file to restore its bundled version.
 #
