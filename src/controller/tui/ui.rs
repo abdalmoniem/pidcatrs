@@ -38,6 +38,7 @@ use ratatui::style::Modifier;
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::text::Span;
+use ratatui::widgets::Clear;
 use ratatui::widgets::Paragraph;
 use ratatui::widgets::Scrollbar;
 use ratatui::widgets::ScrollbarOrientation;
@@ -51,6 +52,7 @@ use super::app::TuiApp;
 use super::border::render_dialog;
 use super::border::render_labeled_panel;
 use super::border::render_log_table_panel;
+use super::border::render_popup_frame_styled;
 use super::copy::render_copy_menu;
 use super::device_picker::device_state_label;
 use super::device_picker::render_device_picker;
@@ -163,6 +165,8 @@ pub fn render(frame: &mut Frame, app: &mut TuiApp) {
         }
         Overlay::None => {}
     }
+
+    render_notification(frame, app);
 }
 
 /// Fixed width (in columns) of the export format dialog.
@@ -237,8 +241,7 @@ fn render_filter_autocomplete_popup(frame: &mut Frame, app: &TuiApp) {
 ///
 /// Segments, separated by `│`: run state (`running`/`paused`/`idle`/`pipe`/
 /// `file`), source detail (`live` or the file path), the selected device
-/// serial and state, `shown/total entries`, and the transient status
-/// feedback message when present.
+/// serial and state, and `shown/total entries`.
 ///
 /// # Arguments
 ///
@@ -305,19 +308,192 @@ fn render_status_bar(frame: &mut Frame, app: &TuiApp, area: Rect) {
             Style::default().fg(theme::subtext()),
         ),
     ]);
-    if let Some(feedback) = &app.status_feedback {
-        spans.push(Span::styled("  │  ", theme::dim_style()));
-        let feedback_style = if app.status_feedback_is_error {
-            theme::error_style()
-        } else {
-            Style::default().fg(theme::success())
-        };
-        spans.push(Span::styled(feedback.clone(), feedback_style));
-    }
 
     let line = Line::from(spans);
 
     frame.render_widget(Paragraph::new(line).style(theme::status_style()), area);
+}
+
+/// Maximum outer width (in columns) of the notification banner.
+const NOTIFICATION_MAX_WIDTH: u16 = 60;
+
+/// Minimum outer width (in columns) so the border label is never clipped.
+const NOTIFICATION_MIN_WIDTH: u16 = 18;
+
+/// Margin (in cells) kept between the notification banner and the screen edges.
+const NOTIFICATION_MARGIN: u16 = 1;
+
+/// Wraps `message` into lines of at most `max_width` columns.
+///
+/// Lines are broken at word boundaries when possible, otherwise mid-word.
+///
+/// # Arguments
+///
+/// * `message` - The message to wrap.
+/// * `max_width` - Maximum width of each line in characters.
+///
+/// # Returns
+///
+/// One or more non-empty lines (never empty).
+/// Wraps `message` into lines of at most `max_width` columns.
+///
+/// Hard line breaks (`\n`, also `\r\n`) are preserved: every source line is
+/// wrapped independently and blank lines stay blank. Words longer than the
+/// line width are hard-broken mid-word.
+///
+/// # Arguments
+///
+/// * `message` - The message to wrap.
+/// * `max_width` - Maximum width of each line in characters.
+///
+/// # Returns
+///
+/// One or more lines (an empty `Vec` is never returned).
+fn wrap_notification_lines(message: &str, max_width: usize) -> Vec<String> {
+    let max_width = max_width.max(1);
+    let mut lines = Vec::new();
+
+    for source_line in message.split('\n') {
+        let source_line = source_line.trim_end_matches('\r');
+        if source_line.trim().is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+
+        let mut current = String::new();
+        for word in source_line.split_whitespace() {
+            push_wrapped_word(word, max_width, &mut current, &mut lines);
+        }
+        if !current.is_empty() {
+            lines.push(current);
+        }
+    }
+
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
+/// Adds one word to `current`, wrapping to a new line at `max_width` as needed.
+///
+/// # Arguments
+///
+/// * `word` - The word to place.
+/// * `max_width` - Maximum width of each line in characters.
+/// * `current` - The line being built.
+/// * `lines` - Accumulator of completed lines.
+fn push_wrapped_word(word: &str, max_width: usize, current: &mut String, lines: &mut Vec<String>) {
+    let mut word = word;
+
+    // Hard-break words longer than the line width.
+    while word.chars().count() > max_width {
+        if !current.is_empty() {
+            lines.push(std::mem::take(current));
+        }
+        let split_at = word
+            .char_indices()
+            .nth(max_width)
+            .map_or(word.len(), |(index, _)| index);
+        let (head, rest) = word.split_at(split_at);
+        lines.push(head.to_string());
+        word = rest;
+    }
+
+    if current.is_empty() {
+        current.push_str(word);
+    } else if current.chars().count() + 1 + word.chars().count() <= max_width {
+        current.push(' ');
+        current.push_str(word);
+    } else {
+        lines.push(std::mem::take(current));
+        current.push_str(word);
+    }
+}
+
+/// Draws the transient notification banner in the top-right corner.
+///
+/// The banner floats above everything else, uses the app's standard rounded
+/// accent border and theme background, and colors the message green (success)
+/// or red (error) to match the feedback kind. Does nothing when no
+/// notification is active.
+///
+/// # Arguments
+///
+/// * `frame` - Frame to draw on.
+/// * `app` - Application state (notification text and error flag).
+fn render_notification(frame: &mut Frame, app: &TuiApp) {
+    let Some(message) = &app.status_feedback else {
+        return;
+    };
+
+    let screen = frame.area();
+    if screen.width < 8 || screen.height < 4 {
+        return;
+    }
+
+    let progress = app.notification_animation_progress();
+
+    let max_inner = screen
+        .width
+        .saturating_sub(NOTIFICATION_MARGIN * 2 + 2)
+        .clamp(1, NOTIFICATION_MAX_WIDTH);
+    let lines = wrap_notification_lines(message, max_inner as usize);
+    let inner_width = lines
+        .iter()
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or(1) as u16;
+
+    let width = (inner_width + 2)
+        .max(NOTIFICATION_MIN_WIDTH)
+        .min(screen.width);
+    let height = (lines.len() as u16 + 2).min(screen.height.saturating_sub(NOTIFICATION_MARGIN));
+
+    // Slide in from the right edge: `slide_offset` counts down to zero as the
+    // animation completes.
+    let max_offset = screen.width.saturating_sub(NOTIFICATION_MARGIN);
+    let slide_offset = ((1.0 - progress) * f64::from(max_offset)).round() as u16;
+    let x = screen
+        .right()
+        .saturating_sub(width)
+        .saturating_sub(NOTIFICATION_MARGIN)
+        .saturating_add(slide_offset)
+        .min(screen.right());
+    let y = NOTIFICATION_MARGIN;
+
+    let area = Rect {
+        x,
+        y,
+        width,
+        height,
+    };
+    if x >= screen.right() {
+        return;
+    }
+
+    // Opaque backdrop so nothing bleeds through the banner while it slides.
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new("").style(theme::app_background_style()),
+        area,
+    );
+
+    let inner = render_popup_frame_styled(frame, area, Style::default().fg(theme::accent()));
+
+    let style = if app.status_feedback_is_error {
+        theme::error_style()
+    } else {
+        Style::default().fg(theme::success())
+    };
+    let text_lines: Vec<Line> = lines
+        .into_iter()
+        .map(|line| Line::from(Span::styled(line, style)))
+        .collect();
+    frame.render_widget(
+        Paragraph::new(text_lines).style(theme::app_background_style()),
+        inner,
+    );
 }
 
 /// Computes the usable content size of the log panel.
@@ -701,15 +877,15 @@ const FILE_PATH_PLACEHOLDER: &str = "type a path...";
 
 /// Draws the open/save file dialog.
 ///
-/// Layout, top to bottom: the `path` input, an optional `error` panel (only
-/// when there is an error to show) and the file explorer listing. The title
-/// and hints depend on the dialog mode; in save mode the title names the
-/// export scope and format. Does nothing if no explorer is active.
+/// Layout, top to bottom: the `path` input and the file explorer listing.
+/// The title and hints depend on the dialog mode; in save mode the title
+/// names the export scope and format. Errors are shown as a notification
+/// banner rather than inline. Does nothing if no explorer is active.
 ///
 /// # Arguments
 ///
 /// * `frame` - Frame to draw on.
-/// * `app` - Application state (explorer, path input, error, mode).
+/// * `app` - Application state (explorer, path input, mode).
 /// * `area` - Outer rectangle of the dialog.
 fn render_file_explorer_overlay(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
     let export_scope = app.export_scope();
@@ -728,13 +904,7 @@ fn render_file_explorer_overlay(frame: &mut Frame, app: &mut TuiApp, area: Rect)
         ),
     };
     let inner = render_dialog(frame, area, &title, hints, false);
-    let error_height = if app.file_open_error.is_some() { 3 } else { 0 };
-    let chunks = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Length(error_height),
-        Constraint::Min(0),
-    ])
-    .split(inner);
+    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(inner);
 
     let path_inner = render_labeled_panel(frame, chunks[0usize], Some("path"), true);
     render_search_field(
@@ -744,16 +914,7 @@ fn render_file_explorer_overlay(frame: &mut Frame, app: &mut TuiApp, area: Rect)
         FILE_PATH_PLACEHOLDER,
     );
 
-    if let Some(err) = app.file_open_error.as_deref() {
-        let error_inner = render_labeled_panel(frame, chunks[1usize], Some("error"), false);
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(err, theme::error_style())))
-                .style(theme::app_background_style()),
-            error_inner,
-        );
-    }
-
-    render_themed(explorer, frame, chunks[2usize], &app.explorer_theme);
+    render_themed(explorer, frame, chunks[1usize], &app.explorer_theme);
 }
 
 /// Computes a rectangle of a fixed size centered inside `area`.

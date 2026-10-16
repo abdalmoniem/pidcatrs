@@ -48,6 +48,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::time::Duration;
 
 use crate::AdbDevice;
 use crate::CliArgs;
@@ -70,6 +71,8 @@ use crate::set_active_theme;
 use crate::set_running;
 use crate::theme_category_for_name;
 
+use crate::controller::adb::NO_ADB_DEVICES_ERROR_HEADER;
+use crate::controller::adb::NO_ADB_DEVICES_ERROR_MESSAGE;
 use crate::controller::setup::bootstrap_adb_tui;
 use crate::controller::setup::build_state;
 use crate::controller::setup::current_app_packages;
@@ -123,6 +126,15 @@ use tui_file_explorer::ExplorerCommand;
 use tui_file_explorer::FileExplorer;
 use tui_file_explorer::SortMode;
 use tui_file_explorer::Theme;
+
+/// How long a notification banner stays on screen before it is dismissed.
+const NOTIFICATION_DURATION: Duration = Duration::from_secs(3);
+
+/// How long the notification banner takes to slide in.
+const NOTIFICATION_ANIMATION_DURATION: Duration = Duration::from_millis(100);
+
+/// Interval between redraw ticks while a banner is animating (~30 fps).
+const NOTIFICATION_TICK: Duration = Duration::from_millis(33);
 
 /// Where the log lines shown in the TUI come from.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -218,10 +230,15 @@ pub struct TuiApp {
     pub viewport_lines: usize,
     /// Selection state of the copy menu.
     pub copy_palette: PaletteSearch,
-    /// Transient status message shown in the status bar.
+    /// Transient notification shown in the top-right banner.
     pub status_feedback: Option<String>,
-    /// When true, [`Self::status_feedback`] is drawn with [`theme::error_style`].
+    /// When true, [`Self::status_feedback`] is an error and is drawn with
+    /// [`theme::error_style`] instead of the success color.
     pub status_feedback_is_error: bool,
+    /// Instant after which the current notification banner is dismissed.
+    notification_deadline: Option<tokio::time::Instant>,
+    /// Instant the current notification banner started animating in.
+    notification_started: Option<tokio::time::Instant>,
     /// Whether select mode (entry-wise navigation and copy) is active.
     pub select_mode: bool,
     /// Where log lines currently come from.
@@ -246,8 +263,6 @@ pub struct TuiApp {
     pub theme_picker_tab: usize,
     /// File explorer of the open file dialog (`Some` while it is open).
     pub file_explorer: Option<FileExplorer>,
-    /// Error displayed inside the file dialog, if any.
-    pub file_open_error: Option<String>,
     /// Path input of the file dialog.
     pub file_path_input: PaletteSearch,
     /// Whether the file dialog is opening a file or saving an export.
@@ -366,6 +381,8 @@ impl TuiApp {
             copy_palette: PaletteSearch::default(),
             status_feedback: None,
             status_feedback_is_error: false,
+            notification_deadline: None,
+            notification_started: None,
             select_mode: false,
             source_mode: SourceMode::Live,
             selected_device: None,
@@ -378,7 +395,6 @@ impl TuiApp {
             theme_names_dark: Vec::default(),
             theme_picker_tab: ThemeCategory::Dark.tab_index(),
             file_explorer: None,
-            file_open_error: None,
             file_path_input: PaletteSearch::default(),
             file_dialog_mode: FileDialogMode::Open,
             pending_overwrite: None,
@@ -518,8 +534,7 @@ impl TuiApp {
         }
 
         self.auto_scroll = false;
-        self.status_feedback = None;
-        self.status_feedback_is_error = false;
+        self.clear_notification();
         let len = self.filtered_indices.len();
         let next = (self.selected_filtered_index as i32 + delta).clamp(0, len as i32 - 1) as usize;
         self.selected_filtered_index = next;
@@ -599,13 +614,58 @@ impl TuiApp {
     /// * `update` - Message to show, or notification that a task finished.
     fn handle_status_update(&mut self, update: StatusUpdate) {
         match update {
-            StatusUpdate::Message(message) => {
-                self.status_feedback = Some(message);
-                self.status_feedback_is_error = false;
-            }
+            StatusUpdate::Message(message) => self.set_notification(message, false),
             StatusUpdate::CopyFinished => self.copy_in_progress = false,
             StatusUpdate::ExportFinished => self.export_in_progress = false,
         }
+    }
+
+    /// Shows a notification banner for [`NOTIFICATION_DURATION`].
+    ///
+    /// Replaces any banner already on screen and restarts its dismissal timer.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - Text to display in the banner.
+    /// * `is_error` - `true` to draw the banner as an error (red), `false` for
+    ///   informational/success feedback (green).
+    fn set_notification(&mut self, message: impl Into<String>, is_error: bool) {
+        self.status_feedback = Some(message.into());
+        self.status_feedback_is_error = is_error;
+        let now = tokio::time::Instant::now();
+        self.notification_deadline = Some(now + NOTIFICATION_DURATION);
+        self.notification_started = Some(now);
+    }
+
+    /// Dismisses the notification banner, if any.
+    fn clear_notification(&mut self) {
+        self.status_feedback = None;
+        self.status_feedback_is_error = false;
+        self.notification_deadline = None;
+        self.notification_started = None;
+    }
+
+    /// Returns the instant at which the current notification banner expires.
+    ///
+    /// `None` when no banner is on screen.
+    pub fn notification_deadline(&self) -> Option<tokio::time::Instant> {
+        self.notification_deadline
+    }
+
+    /// Progress of the banner's slide-in/fade animation, `0.0` to `1.0`.
+    ///
+    /// `1.0` when the animation is finished or no banner is on screen.
+    pub fn notification_animation_progress(&self) -> f64 {
+        let Some(started) = self.notification_started else {
+            return 1.0;
+        };
+        let elapsed = started.elapsed().as_secs_f64();
+        (elapsed / NOTIFICATION_ANIMATION_DURATION.as_secs_f64()).clamp(0.0, 1.0)
+    }
+
+    /// Whether the banner still needs redraw ticks to finish animating.
+    pub fn notification_needs_tick(&self) -> bool {
+        self.status_feedback.is_some() && self.notification_animation_progress() < 1.0
     }
 
     /// Publishes the applied filter to the ingest task.
@@ -724,6 +784,9 @@ impl TuiApp {
         self.devices = get_adb_devices(&base, true).unwrap_or_default();
         self.device_palette.reset();
         self.overlay = Overlay::DevicePicker;
+        if self.devices.is_empty() {
+            self.set_notification(no_devices_error_message(), true);
+        }
     }
 
     /// Theme name list for the currently selected light/dark tab in the picker.
@@ -807,20 +870,11 @@ impl TuiApp {
                 self.display_cache.invalidate();
                 self.overlay = Overlay::None;
                 match Config::persist_theme_name(&name, &self.args) {
-                    Ok(()) => {
-                        self.status_feedback = Some(format!("theme: {name}"));
-                        self.status_feedback_is_error = false;
-                    }
-                    Err(message) => {
-                        self.status_feedback = Some(message);
-                        self.status_feedback_is_error = true;
-                    }
+                    Ok(()) => self.set_notification(format!("theme: {name}"), false),
+                    Err(message) => self.set_notification(message, true),
                 }
             }
-            Err(message) => {
-                self.status_feedback = Some(message);
-                self.status_feedback_is_error = true;
-            }
+            Err(message) => self.set_notification(message, true),
         }
     }
 
@@ -919,8 +973,7 @@ impl TuiApp {
             return;
         }
         if self.export_in_progress {
-            self.status_feedback = Some("export already in progress".to_string());
-            self.status_feedback_is_error = true;
+            self.set_notification("export already in progress", true);
             return;
         }
         self.exit_select_mode();
@@ -993,7 +1046,6 @@ impl TuiApp {
     /// * `file_name` - Initial file name appended to the directory (may be empty).
     fn show_file_dialog(&mut self, mode: FileDialogMode, file_name: String) {
         self.exit_select_mode();
-        self.file_open_error = None;
         self.pending_overwrite = None;
         self.file_dialog_mode = mode;
         self.export_file_name = file_name.clone();
@@ -1022,7 +1074,7 @@ impl TuiApp {
     ///
     /// * `path` - Destination file path.
     fn start_export(&mut self, path: String) {
-        let Some(handle) = self.tokio_handle.as_ref() else {
+        let Some(handle) = self.tokio_handle.clone() else {
             return;
         };
 
@@ -1033,8 +1085,7 @@ impl TuiApp {
             .collect::<VecDeque<_>>();
 
         self.export_in_progress = true;
-        self.status_feedback = Some(format!("exporting to {path}..."));
-        self.status_feedback_is_error = false;
+        self.set_notification(format!("exporting to {path}..."), false);
 
         let status_tx = self.status_tx.clone();
         let format = self.export_format;
@@ -1062,13 +1113,9 @@ impl TuiApp {
                 self.effective_filter = filter;
                 self.sync_shared_filters();
                 self.recompute_filtered();
-                self.status_feedback = None;
-                self.status_feedback_is_error = false;
+                self.clear_notification();
             }
-            Err(err) => {
-                self.status_feedback = Some(err.to_string());
-                self.status_feedback_is_error = true;
-            }
+            Err(err) => self.set_notification(err.to_string(), true),
         }
     }
 
@@ -1090,8 +1137,7 @@ impl TuiApp {
     /// * `amount` - Number of lines to scroll.
     fn scroll_up(&mut self, amount: usize) {
         self.auto_scroll = false;
-        self.status_feedback = None;
-        self.status_feedback_is_error = false;
+        self.clear_notification();
         self.scroll_offset = self.scroll_offset.saturating_sub(amount);
         if self.select_mode {
             self.sync_selection_to_viewport();
@@ -1108,8 +1154,7 @@ impl TuiApp {
     /// * `amount` - Number of lines to scroll.
     fn scroll_down(&mut self, amount: usize) {
         self.auto_scroll = false;
-        self.status_feedback = None;
-        self.status_feedback_is_error = false;
+        self.clear_notification();
         let max = self.max_scroll_offset();
         self.scroll_offset = (self.scroll_offset + amount).min(max);
 
@@ -1208,8 +1253,7 @@ impl TuiApp {
             return;
         }
 
-        self.status_feedback = None;
-        self.status_feedback_is_error = false;
+        self.clear_notification();
 
         match key {
             KeyCode::Char('q') => set_running(false),
@@ -1323,8 +1367,7 @@ impl TuiApp {
     /// * `action` - Which part of the entry to copy.
     fn execute_copy_action(&mut self, action: CopyAction) {
         if self.copy_in_progress {
-            self.status_feedback = Some("copy already in progress".to_string());
-            self.status_feedback_is_error = true;
+            self.set_notification("copy already in progress", true);
             return;
         }
 
@@ -1335,7 +1378,7 @@ impl TuiApp {
             return;
         };
 
-        let Some(handle) = self.tokio_handle.as_ref() else {
+        let Some(handle) = self.tokio_handle.clone() else {
             return;
         };
 
@@ -1344,8 +1387,7 @@ impl TuiApp {
         self.overlay = Overlay::None;
 
         self.copy_in_progress = true;
-        self.status_feedback = Some(format!("copying {feedback}..."));
-        self.status_feedback_is_error = false;
+        self.set_notification(format!("copying {feedback}..."), false);
 
         let status_tx = self.status_tx.clone();
         handle.spawn(async move {
@@ -1918,21 +1960,22 @@ impl TuiApp {
         };
 
         let (directory, fragment) = split_path_input(&self.file_path_input.query);
+        let mut error = None;
         if let Some(directory) = directory
             && directory != explorer.current_dir
         {
             if !directory.is_dir() {
-                self.file_open_error =
-                    Some(format!("directory not found: {}", directory.display()));
-                return;
-            }
-            if let Err(err) = explorer.try_navigate_to(directory) {
-                self.file_open_error = Some(err.to_string());
-                return;
+                error = Some(format!("directory not found: {}", directory.display()));
+            } else if let Err(err) = explorer.try_navigate_to(directory) {
+                error = Some(err.to_string());
             }
         }
 
-        self.file_open_error = None;
+        if let Some(message) = error {
+            self.set_notification(message, true);
+            return;
+        }
+
         self.pending_overwrite = None;
         explorer.search_query = fragment;
         explorer.cursor = 0;
@@ -2001,14 +2044,18 @@ impl TuiApp {
         if let Some(directory) = directory
             && !directory.is_dir()
         {
-            self.file_open_error = Some(format!("directory not found: {}", directory.display()));
+            self.set_notification(
+                format!("directory not found: {}", directory.display()),
+                true,
+            );
             return;
         }
 
         if target.exists() && self.pending_overwrite.as_deref() != Some(typed.as_str()) {
-            self.file_open_error = Some(format!(
-                "file exists: {typed} (press enter again to overwrite)"
-            ));
+            self.set_notification(
+                format!("file exists: {typed} (press enter again to overwrite)"),
+                true,
+            );
             self.pending_overwrite = Some(typed);
             return;
         }
@@ -2020,7 +2067,7 @@ impl TuiApp {
     /// Opens `path` as the log source after validating it.
     ///
     /// On success the dialog closes and the app switches to the file; on
-    /// failure the validation error is shown in the dialog.
+    /// failure the validation error is shown as a notification banner.
     ///
     /// # Arguments
     ///
@@ -2031,14 +2078,13 @@ impl TuiApp {
                 self.close_file_dialog();
                 self.switch_to_file(valid_path);
             }
-            Err(err) => self.file_open_error = Some(err),
+            Err(err) => self.set_notification(err, true),
         }
     }
 
     /// Closes the file dialog and discards its transient state.
     fn close_file_dialog(&mut self) {
         self.overlay = Overlay::None;
-        self.file_open_error = None;
         self.file_explorer = None;
         self.file_path_input.reset();
         self.pending_overwrite = None;
@@ -2061,6 +2107,11 @@ fn empty_effective_filter(args: &CliArgs) -> EffectiveFilter {
         Ok(filter) => filter,
         Err(_) => panic!("empty filter query must parse"),
     }
+}
+
+/// Builds the error text shown when `adb` reports no attached devices.
+fn no_devices_error_message() -> String {
+    format!("{NO_ADB_DEVICES_ERROR_HEADER}\n{NO_ADB_DEVICES_ERROR_MESSAGE}")
 }
 
 fn char_index_to_byte(text: &str, char_index: usize) -> usize {
@@ -2121,6 +2172,9 @@ pub fn run_tui(args: &mut CliArgs) {
         if app.selected_device.is_none() {
             app.need_device_picker = true;
             app.overlay = Overlay::DevicePicker;
+            if app.devices.is_empty() {
+                app.set_notification(no_devices_error_message(), true);
+            }
         }
     }
 
@@ -2175,6 +2229,7 @@ pub fn run_tui(args: &mut CliArgs) {
         let mut events = EventStream::new();
 
         while crate::is_running() {
+            let notification_deadline = app.notification_deadline();
             tokio::select! {
                 event = events.next() => match event {
                     Some(Ok(Event::Key(key))) if key.kind == KeyEventKind::Press => {
@@ -2208,7 +2263,16 @@ pub fn run_tui(args: &mut CliArgs) {
                 update = status_rx.recv() => match update {
                     Some(update) => app.handle_status_update(update),
                     None => set_running(false),
+                },
+                _ = async {
+                    match notification_deadline {
+                        Some(deadline) => tokio::time::sleep_until(deadline).await,
+                        None => std::future::pending::<()>().await,
+                    }
+                } => {
+                    app.clear_notification();
                 }
+                _ = tokio::time::sleep(NOTIFICATION_TICK), if app.notification_needs_tick() => {}
             }
 
             terminal

@@ -355,11 +355,37 @@ fn render_panel_frame(
     bottom: BottomBorder<'_>,
     focused: bool,
 ) -> Rect {
+    render_panel_frame_styled(frame, area, top, bottom, border_style(focused))
+}
+
+/// Draws the four edges of a bordered panel with an explicit border style.
+///
+/// See [`render_panel_frame`]; the border characters are drawn in `style`
+/// instead of the focused/unfocused accent style.
+///
+/// # Arguments
+///
+/// * `frame` - Frame to draw on.
+/// * `area` - Outer rectangle of the panel, including the border.
+/// * `top` - Pre-built top border string.
+/// * `bottom` - Bottom border content.
+/// * `style` - Style used for the box-drawing characters.
+///
+/// # Returns
+///
+/// The rectangle inside the border, available for content. If `area` is too
+/// small to draw a border (`width < 4` or `height < 2`) nothing is drawn and
+/// `area` is returned unchanged.
+fn render_panel_frame_styled(
+    frame: &mut Frame,
+    area: Rect,
+    top: &str,
+    bottom: BottomBorder<'_>,
+    style: Style,
+) -> Rect {
     if area.width < 4 || area.height < 2 {
         return area;
     }
-
-    let style = border_style(focused);
 
     render_border_line(
         frame,
@@ -435,13 +461,31 @@ fn render_panel_frame(
 ///
 /// Inner content rectangle inset by one column and row on each side.
 pub fn render_accent_popup_frame(frame: &mut Frame, area: Rect) -> Rect {
+    render_popup_frame_styled(frame, area, border_style(true))
+}
+
+/// Draws a rounded border in an explicit style and returns the inner area.
+///
+/// Like [`render_accent_popup_frame`], but the box-drawing characters are
+/// drawn in `style`, which lets callers animate the border (e.g. fading in).
+///
+/// # Arguments
+///
+/// * `frame` — Frame to draw on.
+/// * `area` — Outer rectangle including the border.
+/// * `style` — Style used for the border characters.
+///
+/// # Returns
+///
+/// Inner content rectangle inset by one column and row on each side.
+pub fn render_popup_frame_styled(frame: &mut Frame, area: Rect, style: Style) -> Rect {
     let width = area.width as usize;
-    render_panel_frame(
+    render_panel_frame_styled(
         frame,
         area,
         &build_simple_top_border(width),
         BottomBorder::Plain(&build_simple_bottom_border(width)),
-        true,
+        style,
     )
 }
 
