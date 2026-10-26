@@ -21,7 +21,8 @@
 //!
 //! While the filter bar is focused, typing a key name (or pressing Ctrl+Space) opens a floating
 //! popup listing `key:` and `key~` completions. The popup is drawn over the log table without
-//! changing filter bar height ([`FilterAutocomplete::render_popup`]).
+//! changing filter bar height
+//! ([`FilterAutocomplete::render_popup`](crate::controller::tui::filter_autocomplete::FilterAutocomplete::render_popup)).
 
 #![deny(clippy::unwrap_used)]
 

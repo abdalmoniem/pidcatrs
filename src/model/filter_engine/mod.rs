@@ -12,9 +12,12 @@
 
 //! Logcat-style filter query parsing and evaluation for plain mode and the TUI.
 //!
-//! User-visible query text (`--query`, the TUI filter bar) is parsed into an AST ([`FilterQuery`]),
-//! optionally combined with implicit constraints from the CLI (such as [`CliArgs::ignore_tag`]),
-//! and evaluated against [`LogEntry`] values through [`EffectiveFilter`].
+//! User-visible query text (`--query`, the TUI filter bar) is parsed into an
+//! AST ([`FilterQuery`](crate::model::filter_engine::FilterQuery)), optionally
+//! combined with implicit constraints from the CLI (such as
+//! [`CliArgs::ignore_tag`](crate::CliArgs::ignore_tag)), and evaluated against
+//! [`LogEntry`](crate::LogEntry) values through
+//! [`EffectiveFilter`](crate::model::filter_engine::EffectiveFilter).
 //!
 //! # Query syntax (summary)
 //!
@@ -22,9 +25,11 @@
 //! - **Boolean logic** — whitespace is AND; `|` is OR; parentheses group; `-` negates a term or group.
 //! - **Special keys** — `level:warn`, `age:5m` (duration suffix `s`/`m`/`h`/`d`).
 //!
-//! Legacy CLI filter flags compile to the same syntax via [`compile_legacy_filter_query`].
-//! Highlight rules for the TUI log table are derived from the user-visible AST only
-//! ([`highlight_rules_for_user_query`]).
+//! Legacy CLI filter flags compile to the same syntax via
+//! [`compile_legacy_filter_query`](crate::model::filter_engine::compile_legacy_filter_query).
+//! Highlight rules for the TUI log table are derived from the user-visible AST
+//! only
+//! ([`highlight_rules_for_user_query`](crate::model::filter_engine::highlight_rules_for_user_query)).
 
 #![deny(clippy::unwrap_used)]
 

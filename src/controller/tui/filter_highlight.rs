@@ -19,7 +19,8 @@
 
 //! Highlighting filter tokens inside rendered log lines.
 //!
-//! The display cache renders each log entry to one or more ratatui [`Line`]s (wrapped messages
+//! The display cache renders each log entry to one or more ratatui
+//! [`Line`](ratatui::text::Line)s (wrapped messages
 //! become multiple rows). When the TUI filter bar is active and colors are enabled, this module
 //! locates filter needles in header columns and in the message body, including matches that span
 //! a wrap boundary, and repaints those character ranges with a contrasting background.

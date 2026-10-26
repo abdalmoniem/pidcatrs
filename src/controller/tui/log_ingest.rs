@@ -19,11 +19,12 @@
 
 //! Background log ingestion for the TUI.
 //!
-//! A [`LogIngest`] owns a Tokio task that reads raw log lines from one of the
-//! supported sources (a live `adb logcat` process, a file, or standard
-//! input), parses them into [`LogEntry`] values, evaluates the current TUI
-//! filter against each entry and forwards the result to the UI as an
-//! [`IngestUpdate`] over an unbounded channel.
+//! A [`LogIngest`](crate::controller::tui::log_ingest::LogIngest) owns a Tokio task that reads raw log
+//! lines from one of the supported sources (a live `adb logcat` process, a
+//! file, or standard input), parses them into [`LogEntry`](crate::LogEntry)
+//! values, evaluates the current TUI filter against each entry and forwards the
+//! result to the UI as an [`IngestUpdate`](crate::controller::tui::log_ingest::IngestUpdate) over an unbounded
+//! channel.
 //!
 //! The task can be paused and resumed without being torn down, and it can
 //! optionally mirror the entries that pass the filter to an output file

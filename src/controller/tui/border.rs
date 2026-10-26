@@ -24,7 +24,8 @@
 //! bottom edge (`╰─┘key desc└───╯`). The module provides:
 //!
 //! - pure string builders for the top/bottom edges, which are easy to test;
-//! - widget helpers that draw a complete frame and return the inner [`Rect`]
+//! - widget helpers that draw a complete frame and return the inner
+//!   [`Rect`](ratatui::layout::Rect)
 //!   available for content.
 
 #![deny(clippy::unwrap_used)]

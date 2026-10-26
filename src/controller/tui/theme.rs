@@ -20,15 +20,17 @@
 //! Theme-aware colors and styles for the TUI.
 //!
 //! Every function in this module reads the currently active theme (see
-//! [`active_theme`]) on each call, so a theme change is reflected the next
-//! time the UI is drawn. The module exposes:
+//! [`active_theme`](crate::active_theme)) on each call, so a theme change is
+//! reflected the next time the UI is drawn. The module exposes:
 //!
-//! - raw semantic colors ([`background`], [`text`], [`accent`], ...);
-//! - ready-made [`Style`]s built from them ([`status_style`],
-//!   [`heading_style`], ...);
-//! - the file-explorer theme ([`explorer_theme`]);
+//! - raw semantic colors ([`background`](crate::controller::tui::theme::background),
+//!   [`text`](crate::controller::tui::theme::text), [`accent`](crate::controller::tui::theme::accent), ...);
+//! - ready-made [`Style`](ratatui::style::Style)s built from them
+//!   ([`status_style`](crate::controller::tui::theme::status_style),
+//!   [`heading_style`](crate::controller::tui::theme::heading_style), ...);
+//! - the file-explorer theme ([`explorer_theme`](crate::controller::tui::theme::explorer_theme));
 //! - the contextual shortcut hints shown under the log table
-//!   ([`main_shortcut_hints`]).
+//!   ([`main_shortcut_hints`](crate::controller::tui::theme::main_shortcut_hints)).
 
 #![deny(clippy::unwrap_used)]
 

@@ -15,7 +15,9 @@
 
 //! Regex layouts for native Android `adb logcat -v` line formats.
 //!
-//! Each [`LogFormatKind`] maps to one line shape. [`LogFormatMatchConfig`] stores the compiled
+//! Each [`LogFormatKind`](crate::model::log_format::LogFormatKind) maps to one
+//! line shape. [`LogFormatMatchConfig`](crate::model::log_format::LogFormatMatchConfig)
+//! stores the compiled
 //! pattern and capture-group indices for date, time, level, tag, pid, uid, tid, and message.
 //!
 //! # ADB format reference

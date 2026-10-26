@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-//! Command-line interface definition for pidcatrs ([`CliArgs`]).
+//! Command-line interface definition for pidcatrs ([`CliArgs`](crate::CliArgs)).
 //!
 //! Built with clap: flags mirror [`crate::Config`] fields, merge with an optional config file,
 //! and drive device selection, filtering, column layout, colors, and output mode.
@@ -531,7 +531,7 @@ impl CliArgs {
         bin_name.leak()
     }
 
-    /// Short version string (`v` + [`CARGO_PKG_VERSION`]), leaked for clap.
+    /// Short version string (`v` + `CARGO_PKG_VERSION`), leaked for clap.
     fn get_version() -> &'static str {
         let version = env!("CARGO_PKG_VERSION");
 

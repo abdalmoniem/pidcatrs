@@ -28,7 +28,8 @@ pub mod ansi_segment;
 pub mod cli_args;
 /// Log-line filtering helpers (package, tag, level, ownership).
 pub mod filter;
-/// Logcat-style filter query parse, evaluation, and highlight rule extraction ([`filter_engine::EffectiveFilter`]).
+/// Logcat-style filter query parse, evaluation, and highlight rule extraction
+/// ([`EffectiveFilter`](crate::model::filter_engine::EffectiveFilter)).
 pub mod filter_engine;
 /// Parsed Android log record and lifecycle banner kinds.
 pub mod log_entry;
@@ -38,9 +39,11 @@ pub mod log_format;
 pub mod log_level;
 /// Child process or stdin stream supplying raw log bytes.
 pub mod log_source;
-/// [`Option`] implementation of [`ValueOrPanic`](value_unwrap::ValueOrPanic).
+/// [`Option`] implementation of
+/// [`ValueOrPanic`](crate::model::value_unwrap::ValueOrPanic).
 pub mod option_unwrap;
-/// [`Result`] implementation of [`ValueOrPanic`](value_unwrap::ValueOrPanic).
+/// [`Result`] implementation of
+/// [`ValueOrPanic`](crate::model::value_unwrap::ValueOrPanic).
 pub mod result_unwrap;
 /// Mutable maps and display state while tailing logcat.
 pub mod state;

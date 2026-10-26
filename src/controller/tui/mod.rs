@@ -22,24 +22,31 @@
 //! This module hosts the full-screen, [`ratatui`]-based logcat viewer. It
 //! wires together a handful of cooperating submodules:
 //!
-//! - `app` — the `TuiApp` state machine, key/mouse handling and
-//!   the main event loop ([`run_tui`]).
-//! - `ui` — pure rendering of the application state into a [`ratatui::Frame`].
+//! - `app` — the [`TuiApp`](crate::controller::tui::app::TuiApp) state machine, key/mouse handling
+//!   and the main event loop ([`run_tui`](crate::controller::tui::app::run_tui)).
+//! - `ui` — pure rendering of the application state into a
+//!   [`ratatui::Frame`](ratatui::Frame).
 //! - `log_ingest` — background tasks that read log lines from `adb logcat`,
 //!   a file or a pipe and feed them to the application.
-//! - `display_cache` — an incremental cache of rendered (ANSI-parsed) lines.
+//! - `display_cache` — an incremental cache of rendered (ANSI-parsed lines,
+//!   [`DisplayCache`](crate::controller::tui::display_cache::DisplayCache)) built in
+//!   [`DISPLAY_BUILD_BUDGET`](crate::controller::tui::display_cache::DISPLAY_BUILD_BUDGET) chunks.
 //! - `filter_input`, `filter_autocomplete`, `filter_highlight` — Logcat-style filter bar
 //!   editing, key completion popup, and in-line log highlighting from the query AST.
-//! - `palette`, `help`, `device_picker`, `theme_picker`, `copy`, `export`, `file_source` —
-//!   the dialogs/overlays and their supporting helpers.
+//! - `palette`, `help`, `device_picker`, `theme_picker`, `copy`, `export`,
+//!   `file_source` — the dialogs/overlays and their supporting helpers
+//!   ([`ExportFormat`](crate::controller::tui::export::ExportFormat),
+//!   [`run_export`](crate::controller::tui::export::run_export),
+//!   [`StatusUpdate`](crate::controller::tui::app::StatusUpdate)).
 //! - `border`, `theme` — shared drawing primitives and theme-aware styles.
 //!
-//! The only item exported to the rest of the crate is [`run_tui`].
+//! The only item exported to the rest of the crate is
+//! [`run_tui`](crate::controller::tui::app::run_tui).
 
 #![deny(clippy::unwrap_used)]
 
 /// Application state, input handling and the TUI event loop.
-mod app;
+pub(crate) mod app;
 /// Box-drawing border builders and panel/dialog renderers.
 mod border;
 /// "Copy log entry" menu: options, clipboard access and rendering.
@@ -47,9 +54,9 @@ mod copy;
 /// Device selection dialog (`adb devices`) helpers and renderer.
 mod device_picker;
 /// Incremental cache of rendered log lines for the main log view.
-mod display_cache;
+pub(crate) mod display_cache;
 /// "Export entries" format menu and file writers.
-mod export;
+pub(crate) mod export;
 /// Path helpers and validation for the open/save file dialogs.
 mod file_source;
 /// Inline key autocomplete for the filter bar.

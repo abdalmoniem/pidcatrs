@@ -15,9 +15,11 @@
 
 //! Configuration paths, file format, JSON Schema, shell completions, and color themes.
 //!
-//! The [`file::Config`] type mirrors CLI flags; [`paths`] resolves the default config
-//! and themes directories; [`schema`] builds Draft-07 JSON Schema strings; [`completions`]
-//! augments generated shell scripts; [`theme`] loads and resolves color themes.
+//! The [`Config`](crate::config::file::Config) type mirrors CLI flags;
+//! [`paths`](crate::config::paths) resolves the default config and themes
+//! directories; [`schema`](crate::config::schema) builds Draft-07 JSON Schema
+//! strings; [`completions`](crate::config::completions) augments generated shell
+//! scripts; [`theme`](crate::config::theme) loads and resolves color themes.
 
 /// Shell completion generation with dynamic theme and option value completion.
 pub mod completions;

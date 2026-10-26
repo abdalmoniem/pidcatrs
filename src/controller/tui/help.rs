@@ -19,11 +19,12 @@
 
 //! The command palette / help catalog.
 //!
-//! [`HELP_CATALOG`] is the single source of truth for every documented key
-//! binding and filter keyword. Entries that have a [`HelpAction`] can be
-//! executed straight from the palette; the rest are purely informational.
-//! [`build_help_rows`] turns the catalog into the (optionally searched) list
-//! of rows that the UI displays.
+//! [`HELP_CATALOG`](crate::controller::tui::help::HELP_CATALOG) is the single source of truth for
+//! every documented key binding and filter keyword. Entries that have a
+//! [`HelpAction`](crate::controller::tui::help::HelpAction) can be executed straight from the palette;
+//! the rest are purely informational.
+//! [`build_help_rows`](crate::controller::tui::help::build_help_rows) turns the catalog into the
+//! (optionally searched) list of rows that the UI displays.
 
 #![deny(clippy::unwrap_used)]
 

@@ -20,9 +20,11 @@
 //! Incremental cache of rendered log lines.
 //!
 //! Rendering a log entry (column layout, coloring, wrapping) and parsing its
-//! ANSI output into ratatui spans is comparatively expensive. [`DisplayCache`]
+//! ANSI output into ratatui spans is comparatively expensive.
+//! [`DisplayCache`](crate::controller::tui::display_cache::DisplayCache)
 //! keeps the result of that work between frames and only renders a bounded
-//! number of new entries per frame ([`DISPLAY_BUILD_BUDGET`]), so the UI stays
+//! number of new entries per frame
+//! ([`DISPLAY_BUILD_BUDGET`](crate::controller::tui::display_cache::DISPLAY_BUILD_BUDGET)), so the UI stays
 //! responsive while a large backlog of entries is being displayed. The cache
 //! is rebuilt from scratch when the filter, the width or the color mode
 //! changes.

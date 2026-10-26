@@ -19,10 +19,11 @@
 
 //! Exporting the filtered log entries to a file.
 //!
-//! The user first picks an [`ExportFormat`] from a small menu, then chooses a
-//! destination in the save dialog. [`run_export`] performs the actual write
-//! on the async runtime and reports the result back to the UI through a
-//! [`StatusUpdate`] channel.
+//! The user first picks an [`ExportFormat`](crate::controller::tui::export::ExportFormat) from a small
+//! menu, then chooses a destination in the save dialog.
+//! [`run_export`](crate::controller::tui::export::run_export) performs the actual write on the async
+//! runtime and reports the result back to the UI through a
+//! [`StatusUpdate`](crate::controller::tui::app::StatusUpdate) channel.
 
 #![deny(clippy::unwrap_used)]
 

@@ -839,7 +839,9 @@ pub fn flush_long_log_entry(state: &mut State, args: &CliArgs, writers: &mut [Wr
 /// * `state` — Session parsing state.
 /// * `args` — CLI formatting options.
 /// * `writers` — Output sinks to render into.
-/// * `filter` — Effective filter; entries that fail [`EffectiveFilter::matches`] are skipped.
+/// * `filter` — Effective filter; entries that fail
+///   [`EffectiveFilter::matches`](crate::model::filter_engine::EffectiveFilter::matches)
+///   are skipped.
 pub fn write_log_line(
     line: &str,
     state: &mut State,

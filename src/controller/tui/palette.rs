@@ -21,9 +21,11 @@
 //!
 //! The command palette, device picker, copy menu, export-format menu and file
 //! path input all share the same behavior: a single-line text field with a
-//! cursor above a list with a highlighted row. [`PaletteSearch`] stores that
-//! state, [`handle_palette_key`] translates key presses into state changes,
-//! and the remaining helpers implement token matching and field rendering.
+//! cursor above a list with a highlighted row.
+//! [`PaletteSearch`](crate::controller::tui::palette::PaletteSearch) stores that state,
+//! [`handle_palette_key`](crate::controller::tui::palette::handle_palette_key) translates key presses into
+//! state changes, and the remaining helpers implement token matching and field
+//! rendering.
 
 #![deny(clippy::unwrap_used)]
 

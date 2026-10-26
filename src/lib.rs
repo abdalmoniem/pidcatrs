@@ -13,25 +13,26 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#![doc = "\
-pidcatrs library: a colorized Android logcat viewer with filtering, themes, and TUI.\n\
-\n\
-The crate re-exports the public API used by the `pidcatrs` binary and integration tests: \
-configuration and themes ([`Config`], [`Theme`]), ADB helpers, log parsing and rendering, \
-plain streaming and interactive TUI entry points, and core model types ([`LogEntry`], [`State`], \
-[`CliArgs`]).\n\
-\n\
-# Modes\n\
-\n\
-- **TUI** — [`run_tui`] when stdout is a terminal and `--plain` is not set.\n\
-- **Plain** — [`run_plain`] for pipes, files, or `--plain`.\n\
-\n\
-# Layout\n\
-\n\
-- **config** — paths, documented TOML config, JSON Schema, shell completions, themes.\n\
-- **controller** — adb, log processing, plain/TUI runners, terminal restore, output writers.\n\
-- **model** — CLI args, parsed log lines, [`filter_engine`] query parse/eval, session state, ANSI segments.\
-"]
+#![allow(rustdoc::private_intra_doc_links)]
+
+//! pidcatrs library: a colorized Android logcat viewer with filtering, themes, and TUI.
+//!
+//! The crate re-exports the public API used by the `pidcatrs` binary and integration tests:
+//! configuration and themes ([`Config`], [`Theme`]), ADB helpers, log parsing and rendering,
+//! plain streaming and interactive TUI entry points, and core model types ([`LogEntry`], [`State`],
+//! [`CliArgs`]).
+//!
+//! # Modes
+//!
+//! - **TUI** — [`run_tui`] when stdout is a terminal and `--plain` is not set.
+//! - **Plain** — [`run_plain`] for pipes, files, or `--plain`.
+//!
+//! # Layout
+//!
+//! - **config** — paths, documented TOML config, JSON Schema, shell completions, themes.
+//! - **controller** — adb, log processing, plain/TUI runners, terminal restore, output writers.
+//! - **model** — CLI args, parsed log lines, [`filter_engine`](crate::model::filter_engine) query
+//!   parse/eval, session state, ANSI segments.
 
 /// Configuration paths, file format, JSON Schema, shell completions, and color themes.
 mod config;

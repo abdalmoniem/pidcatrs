@@ -20,7 +20,8 @@
 //! The "change theme" dialog: searchable lists with light/dark tabs and live preview.
 //!
 //! Layout (top to bottom inside the dialog): filter field, centered light/dark tab row,
-//! scrollable theme list. Tab changes are handled in [`super::app::TuiApp`]; this module
+//! scrollable theme list. Tab changes are handled in
+//! [`TuiApp`](crate::controller::tui::app::TuiApp); this module
 //! only renders state passed in from the app.
 
 #![deny(clippy::unwrap_used)]

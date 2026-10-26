@@ -19,12 +19,12 @@
 
 //! Rendering of the TUI.
 //!
-//! [`render`] draws one complete frame: the filter bar on top, a one-line
+//! [`render`](crate::controller::tui::ui::render) draws one complete frame: the filter bar on top, a one-line
 //! status bar, the scrollable log table, and — if one is active — a modal
 //! overlay (device picker, theme picker, file dialog, command palette, copy
 //! menu or export format menu). The module also hosts the ANSI-to-ratatui conversion
-//! ([`line_from_ansi`]) used to turn pre-colored log output into styled
-//! [`Line`]s.
+//! ([`line_from_ansi`](crate::controller::tui::ui::line_from_ansi)) used to turn pre-colored log
+//! output into styled [`Line`](ratatui::text::Line)s.
 
 #![deny(clippy::unwrap_used)]
 

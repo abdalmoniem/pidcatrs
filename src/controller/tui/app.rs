@@ -19,11 +19,11 @@
 
 //! Application state and event loop of the TUI.
 //!
-//! [`TuiApp`] holds everything the interface needs: the buffered log
+//! [`TuiApp`](crate::controller::tui::app::TuiApp) holds everything the interface needs: the buffered log
 //! entries, the active filter, scroll/selection state, the open overlay and
 //! the handles to background work (log ingestion, clipboard, export). Input
 //! events are translated into state changes by its `handle_*` methods, and
-//! [`run_tui`] drives the whole thing: it prepares the terminal, starts log
+//! [`run_tui`](crate::controller::tui::app::run_tui) drives the whole thing: it prepares the terminal, starts log
 //! ingestion, and then runs an event loop that multiplexes keyboard/mouse
 //! input, newly ingested entries and status updates, redrawing after every
 //! iteration.
@@ -131,10 +131,10 @@ use tui_file_explorer::Theme;
 const NOTIFICATION_DURATION: Duration = Duration::from_secs(3);
 
 /// How long the notification banner takes to slide in.
-const NOTIFICATION_ANIMATION_DURATION: Duration = Duration::from_millis(100);
+const NOTIFICATION_ANIMATION_DURATION: Duration = Duration::from_millis(300);
 
-/// Interval between redraw ticks while a banner is animating (~30 fps).
-const NOTIFICATION_TICK: Duration = Duration::from_millis(33);
+/// Interval between redraw ticks while a banner is animating (~60 fps).
+const NOTIFICATION_TICK: Duration = Duration::from_millis(15);
 
 /// Where the log lines shown in the TUI come from.
 #[derive(Clone, Debug, Eq, PartialEq)]

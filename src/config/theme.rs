@@ -15,13 +15,17 @@
 
 #![deny(clippy::unwrap_used)]
 
-//! Color theme TOML format, bundled themes, resolution to [`Rgb`], and runtime activation.
+//! Color theme TOML format, bundled themes, resolution to
+//! [`Rgb`](crate::config::theme::Rgb), and runtime activation.
 //!
 //! Bundled sources live under `src/config/themes/light` and `src/config/themes/dark` at
-//! build time; at runtime [`install_bundled_themes`] mirrors that layout under the user
-//! [`themes_dir`](super::paths::themes_dir) (`themes/light/` and `themes/dark/`). Theme
-//! names stay flat (for example `gruber-darker`); category is inferred from path or from
-//! [`BundledTheme::category`].
+//! build time; at runtime
+//! [`install_bundled_themes`](crate::config::theme::install_bundled_themes) mirrors
+//! that layout under the user
+//! [`themes_dir`](crate::config::paths::themes_dir) (`themes/light/` and
+//! `themes/dark/`). Theme names stay flat (for example `gruber-darker`); category
+//! is inferred from path or from
+//! [`BundledTheme::category`](crate::config::theme::BundledTheme::category).
 
 use std::fmt::Display;
 use std::fmt::Formatter;
