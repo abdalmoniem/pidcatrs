@@ -177,7 +177,9 @@ pub fn build_state(
 ///
 /// The parts, separated by single spaces, are in order:
 ///
-/// 1. `package:<name>` for each catch-all package (entries without `:`), sorted alphabetically;
+/// 1. `package:<name>` for each catch-all package (entries without `:`), sorted alphabetically and
+///    joined with ` | ` (they are alternatives); parenthesized when later clauses follow so those
+///    still apply to every package;
 /// 2. `tag:<tag>` for each configured tag;
 /// 3. the configured filter regex, verbatim;
 /// 4. `level:<name>` when the log level is anything other than verbose.
@@ -186,16 +188,13 @@ pub fn seed_filter_input(args: &CliArgs, packages: &HashSet<String>) -> String {
         return query.clone();
     }
 
-    let mut parts = Vec::default();
-
     let mut packages: Vec<&String> = packages
         .iter()
         .filter(|package| !package.contains(':'))
         .collect();
     packages.sort();
-    for package in packages {
-        parts.push(format!("package:{package}"));
-    }
+
+    let mut parts = Vec::default();
 
     if let Some(tags) = &args.tag {
         for tag in tags {
@@ -209,6 +208,21 @@ pub fn seed_filter_input(args: &CliArgs, packages: &HashSet<String>) -> String {
 
     if args.log_level != LogLevel::VERBOSE {
         parts.push(format!("level:{}", args.log_level.filter_name()));
+    }
+
+    if !packages.is_empty() {
+        let package_terms = packages
+            .iter()
+            .map(|package| format!("package:{package}"))
+            .collect::<Vec<_>>()
+            .join(" | ");
+
+        let package_query = match packages.len() > 1usize && !parts.is_empty() {
+            true => format!("({package_terms})"),
+            false => package_terms,
+        };
+
+        parts.insert(0usize, package_query);
     }
 
     parts.join(" ")

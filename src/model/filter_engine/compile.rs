@@ -59,7 +59,8 @@ pub fn validate_query_flag_conflicts(args: &CliArgs) {
 
 /// Builds a Logcat-style query string equivalent to legacy CLI filter flags.
 ///
-/// Package catch-alls become `package:` terms; tags, regex, and level follow the same shape as
+/// Package catch-alls become `package:` terms joined with ` | ` (they are alternatives), and are
+/// parenthesized when later clauses follow; tags, regex, and level follow the same shape as
 /// [`crate::controller::setup::seed_filter_input`], except regex uses `message~` form.
 ///
 /// # Arguments
@@ -71,16 +72,13 @@ pub fn validate_query_flag_conflicts(args: &CliArgs) {
 ///
 /// A single query string suitable for [`crate::parse_query`].
 pub fn compile_legacy_filter_query(args: &CliArgs, packages: &HashSet<String>) -> String {
-    let mut parts = Vec::default();
-
     let mut packages: Vec<&String> = packages
         .iter()
         .filter(|package| !package.contains(':'))
         .collect();
     packages.sort();
-    for package in packages {
-        parts.push(format!("package:{package}"));
-    }
+
+    let mut parts = Vec::default();
 
     if let Some(tags) = &args.tag {
         for tag in tags {
@@ -94,6 +92,21 @@ pub fn compile_legacy_filter_query(args: &CliArgs, packages: &HashSet<String>) -
 
     if args.log_level != LogLevel::VERBOSE {
         parts.push(format!("level:{}", args.log_level.filter_name()));
+    }
+
+    if !packages.is_empty() {
+        let package_terms = packages
+            .iter()
+            .map(|package| format!("package:{package}"))
+            .collect::<Vec<_>>()
+            .join(" | ");
+
+        let package_query = match packages.len() > 1usize && !parts.is_empty() {
+            true => format!("({package_terms})"),
+            false => package_terms,
+        };
+
+        parts.insert(0usize, package_query);
     }
 
     parts.join(" ")

@@ -111,7 +111,7 @@ nextest:
 [doc('Install the application by running the generated installer')]
 [group('install')]
 [script]
-install: build-release
+install: build-release build-installer
     if [ "$TARGET_OS" != "windows" ]; then
         cargo xtask install
     else
