@@ -478,8 +478,8 @@ fn highlight_selected_line(line: &Line<'static>) -> Line<'static> {
 
 /// Draws the vertical scrollbar on the right edge of the log panel.
 ///
-/// The track starts one row below the top border so it does not overlap the
-/// column header line.
+/// The track uses the same `█` glyph as the thumb in a dimmed accent color,
+/// the thumb is the full accent color, and there are no arrow caps.
 ///
 /// # Arguments
 ///
@@ -504,9 +504,9 @@ fn render_log_scrollbar(
 
     let scrollbar_area = Rect {
         x: inner.x.saturating_add(inner.width.saturating_sub(1)),
-        y: inner.y.saturating_add(1),
+        y: inner.y,
         width: 1,
-        height: inner.height.saturating_sub(1).max(1),
+        height: inner.height.max(1),
     };
 
     let max_scroll = total_lines.saturating_sub(viewport_lines);
@@ -517,11 +517,15 @@ fn render_log_scrollbar(
         .position(scrollbar_position)
         .viewport_content_length(viewport_lines);
 
-    frame.render_stateful_widget(
-        Scrollbar::new(ScrollbarOrientation::VerticalRight),
-        scrollbar_area,
-        &mut scrollbar_state,
-    );
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(Some("█"))
+        .track_style(Style::default().fg(theme::accent_dim()))
+        .thumb_symbol("█")
+        .thumb_style(Style::default().fg(theme::accent()));
+
+    frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
 }
 
 /// Ratatui's scrollbar uses `position = content_length - 1` for the bottom of the track,

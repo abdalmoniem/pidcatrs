@@ -60,6 +60,24 @@ pub fn accent() -> Color {
     active_theme().ui.accent.into()
 }
 
+/// Returns the accent color blended toward the app background (20% accent),
+/// for de-emphasized accents such as the scrollbar track.
+pub fn accent_dim() -> Color {
+    let theme = active_theme();
+    let (accent, background) = (theme.ui.accent, theme.ui.background);
+
+    // Mixes one channel: 20% accent, 80% background.
+    let mix = |accent: u8, background: u8| -> u8 {
+        ((u16::from(accent) * 2 + u16::from(background) * 8) / 10) as u8
+    };
+
+    Color::Rgb(
+        mix(accent.r, background.r),
+        mix(accent.g, background.g),
+        mix(accent.b, background.b),
+    )
+}
+
 /// Returns the secondary accent color (e.g. for the device serial).
 pub fn secondary() -> Color {
     active_theme().ui.secondary.into()
